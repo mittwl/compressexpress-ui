@@ -299,6 +299,10 @@ button:focus {
 #videoBtn:disabled { opacity: 0.6; cursor: default; }
 #videoBtn:hover:enabled { background: #5591ea; }
 #videoStatus { font-size: 12px; color: #aaa; width: 100%; }
+#videoStatus .ok { color: #4cd964; }
+#videoStatus .warn { color: #ffcc00; }
+#videoStatus a { color: #8ab4f8; margin-left: 6px; cursor: pointer; }
+#videoDetails { margin-top: 4px; font-size: 11px; color: #888; white-space: pre-wrap; }
 #videoFps { width: 80px; }
   </style>
 </head>
@@ -332,10 +336,13 @@ button:focus {
       <select id="videoFps">
         <option value="60">60fps</option>
         <option value="30">30fps</option>
-        <option value="25" selected>25fps</option>
-        <option value="24">24fps</option>
+        <option value="25">25fps</option>
+        <option value="24" selected>24fps</option>
         <option value="12">12fps</option>
       </select>
+      <label id="videoSmoothWrap" title="Figma can't render 25fps from plugins. Smooth renders at 60fps and converts (about twice as long); otherwise it renders at 30fps and converts." style="display:none; font-size:12px; color:#ccc; gap:4px; align-items:center;">
+        <input type="checkbox" id="videoSmooth"> Smooth (slower)
+      </label>
       <button id="videoBtn" disabled>Export MP4 (0)</button>
       <div id="videoStatus">Exports Figma Motion frames as MP4 and fixes the rotation flag Broadsign can't read.</div>
     </div>
@@ -629,7 +636,12 @@ window.addEventListener('resize', updateGutter);    // on window resize
     const videoBtn    = document.getElementById('videoBtn');
     const videoFps    = document.getElementById('videoFps');
     const videoStatus = document.getElementById('videoStatus');
-    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '', videoRenderLogs = [];
+    const videoSmooth = document.getElementById('videoSmooth');
+    const videoSmoothWrap = document.getElementById('videoSmoothWrap');
+    const API_FPS = [12, 24, 30, 60];
+    function syncSmooth() { videoSmoothWrap.style.display = API_FPS.includes(Number(videoFps.value)) ? 'none' : 'inline-flex'; }
+    videoFps.addEventListener('change', syncSmooth);
+    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '', videoRenderLogs = [], videoRendered = 0, videoRenderFps = 0;
 
 
     let images = [], exportResults = [], projectName = 'export';
@@ -680,20 +692,26 @@ function finderProofKB(userKB) {
         finalizeDownload();
       }
       if (msg.type === 'video-status') {
-        videoStatus.textContent = `Rendering ${msg.data.name} in Figma…`;
+        videoRendered++;
+        videoStatus.textContent = `Rendering ${msg.data.name} in Figma… (${Math.min(videoRendered, videoTotal)} of ${videoTotal})`;
+        progressBar.removeAttribute('value'); // indeterminate while Figma renders (no progress is reported)
       }
       if (msg.type === 'video-error') {
         videoErrors.push(`${msg.data.name}: ${msg.data.message}`);
       }
       if (msg.type === 'video-result') {
-        const { name, bytes, used, settingErrors, fps, renderLog } = msg.data;
+        const { name, bytes, used, settingErrors, fps, renderFps, renderLog } = msg.data;
+        if (renderFps) videoRenderFps = renderFps;
         if (renderLog) videoRenderLogs.push(...renderLog);
         if (used) videoFigmaSetting = used;
         if (settingErrors && settingErrors.length) console.log('[CompressExpress] Figma MP4 setting errors', settingErrors);
         videoQueue = videoQueue.then(async () => {
           try {
             const r = await fixForBroadsign(new Uint8Array(bytes),
-              p => { videoStatus.textContent = `Fixing ${name}… ${Math.round(p * 100)}%`; },
+              p => {
+                videoStatus.textContent = `Fixing ${name} for Broadsign… ${Math.round(p * 100)}%`;
+                progressBar.max = videoTotal; progressBar.value = videoOut.length + videoErrors.length + p;
+              },
               s => { videoStatus.textContent = `${name}: ${s}`; },
               fps);
             videoOut.push({ name, bytes: r.bytes, fixed: r.fixed, retimed: r.retimed, engine: r.engine, mode: r.mode, fixMs: r.fixMs });
@@ -751,10 +769,11 @@ function finderProofKB(userKB) {
         });
       if (!chosen.length) return;
       videoBtn.disabled = exportBtn.disabled = true;
-      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = ''; videoRenderLogs = [];
+      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = ''; videoRenderLogs = []; videoRendered = 0; videoRenderFps = 0;
       progressBar.value = 0; progressBar.max = chosen.length;
       videoStatus.textContent = 'Starting…';
-      toFigma({ type: 'export-video', chosen, fps: Number(videoFps.value) });
+      progressBar.removeAttribute('value');
+      toFigma({ type: 'export-video', chosen, fps: Number(videoFps.value), smooth: videoSmooth.checked && !API_FPS.includes(Number(videoFps.value)) });
     };
 
     function downloadBlob(blob, filename) {
@@ -782,22 +801,41 @@ function finderProofKB(userKB) {
       }
       const fixed = videoOut.filter(v => v.fixed).length;
       const retimed = videoOut.filter(v => v.retimed).length;
-      let msg = `Done: ${videoOut.length} exported at ${videoFps.value}fps (${fixed} rotation-fixed`;
-      if (retimed) msg += `, ${retimed} frame-rate converted`;
-      msg += ').';
-      if (videoFigmaSetting) msg += ` Figma setting used: ${videoFigmaSetting}.`;
-      const engines = [...new Set(videoOut.map(v => v.engine).filter(e => e && e !== 'none'))];
-      if (engines.length) msg += ` Engine: ${engines.map(e => e === 'webcodecs' ? 'fast (WebCodecs)' : 'compatibility (ffmpeg)').join(', ')}.`;
+      const n = videoOut.length, failed = videoErrors.length;
+      const fpsTxt = `${videoFps.value}fps`;
+      let short;
+      if (n && !failed) short = `Exported ${n} MP4${n > 1 ? 's' : ''} at ${fpsTxt}, ready for Broadsign`;
+      else if (n && failed) short = `Exported ${n} MP4${n > 1 ? 's' : ''} at ${fpsTxt}, ${failed} failed`;
+      else short = `Export failed${failed ? ': ' + videoErrors[0] : ''}`;
+
+      // technical details, hidden behind a link
       const s = ms => (ms / 1000).toFixed(1) + 's';
       const okRender = videoRenderLogs.filter(r => r.ok).reduce((a, r) => a + r.ms, 0);
       const failRender = videoRenderLogs.filter(r => !r.ok);
       const fixTotal = videoOut.reduce((a, v) => a + (v.fixMs || 0), 0);
       const modes = [...new Set(videoOut.map(v => v.mode).filter(m => m && m !== 'none'))];
-      msg += ` Timing: Figma render ${s(okRender)}`;
-      if (failRender.length) msg += ` + ${s(failRender.reduce((a, r) => a + r.ms, 0))} on rejected settings (${failRender.map(r => r.label).join(', ')})`;
-      msg += `, fix ${s(fixTotal)}${modes.length ? ' [' + modes.join(', ') + ']' : ''}.`;
-      if (videoErrors.length) msg += ` ${videoErrors.length} failed: ${videoErrors.join(' | ')}`;
-      videoStatus.textContent = msg;
+      const engines = [...new Set(videoOut.map(v => v.engine).filter(e => e && e !== 'none'))];
+      const lines = [];
+      lines.push(`${n} exported, ${fixed} rotation-fixed${retimed ? `, ${retimed} frame-rate converted` : ''}.`);
+      if (videoRenderFps && String(videoRenderFps) !== videoFps.value) lines.push(`Figma rendered at ${videoRenderFps}fps (plugins can't render ${fpsTxt}), converted to ${fpsTxt}${videoRenderFps === 60 ? ' (smooth)' : ''}.`);
+      if (videoFigmaSetting) lines.push(`Figma setting: ${videoFigmaSetting}`);
+      if (engines.length) lines.push(`Engine: ${engines.map(e => e === 'webcodecs' ? 'fast (WebCodecs)' : 'compatibility (ffmpeg)').join(', ')}${modes.length ? ' [' + modes.join(', ') + ']' : ''}`);
+      let timing = `Timing: Figma render ${s(okRender)}`;
+      if (failRender.length) timing += ` + ${s(failRender.reduce((a, r) => a + r.ms, 0))} on rejected settings`;
+      timing += `, fix ${s(fixTotal)}`;
+      lines.push(timing);
+      if (failed) lines.push('Failed: ' + videoErrors.join(' | '));
+
+      const cls = n && !failed ? 'ok' : 'warn';
+      videoStatus.innerHTML = '';
+      const head = document.createElement('span'); head.className = cls; head.textContent = (cls === 'ok' ? '✓ ' : '⚠ ') + short;
+      const link = document.createElement('a'); link.textContent = 'Details';
+      const det = document.createElement('div'); det.id = 'videoDetails'; det.hidden = true; det.textContent = lines.join('\n');
+      link.onclick = (e) => { e.preventDefault(); det.hidden = !det.hidden; link.textContent = det.hidden ? 'Details' : 'Hide details'; };
+      videoStatus.append(head, link, det);
+      console.log('[CompressExpress] video export details\n' + lines.join('\n'));
+
+      toFigma({ type: 'video-finished', message: short, error: !(n && !failed) });
       updateState();
       resetProgress();
     }
