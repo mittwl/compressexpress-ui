@@ -399,7 +399,7 @@ window.addEventListener('resize', updateGutter);    // on window resize
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
   <script>
-/* Broadsign fix v2
+/* Broadsign fix v3
    - Reads rotation + true frame rate (from the media header) with mp4box.js
    - Fast path: WebCodecs (hardware/native encoder) when the page is a secure context, e.g. hosted on GitHub Pages
    - Fallback: ffmpeg.wasm (works in Figma's sandbox, slower)
@@ -407,7 +407,7 @@ window.addEventListener('resize', updateGutter);    // on window resize
    fixForBroadsign(u8, onProgress, onStatus, targetFps) -> { bytes, fixed, retimed, fps, engine, note } */
 (function (global) {
   var FFMPEG_CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js';
-  var progressCb = null, engineLoadedOnce = false;
+  var progressCb = null, engineLoadedOnce = false, lastMode = '';
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
 
   // ---------- inspect ----------
@@ -501,11 +501,15 @@ window.addEventListener('resize', updateGutter);    // on window resize
 
     var encCfg = await pickEncoderConfig(outW, outH, outFps);
     if (!encCfg) return null; // let caller fall back
+    // Hardware encoders (VideoToolbox on Mac) convert RGB to broadcast-range YUV on the GPU themselves,
+    // so hand them the canvas directly. Software encoders can tag full range, so convert in JS for those.
+    var direct = encCfg.hardwareAcceleration === 'prefer-hardware' && !global.__forceI420;
+    if (global.__forceDirect) direct = true;
 
     var target = new Mp4Muxer.ArrayBufferTarget();
     var muxer = new Mp4Muxer.Muxer({ target: target, video: { codec: 'avc', width: outW, height: outH, frameRate: outFps }, fastStart: 'in-memory' });
     var canvas = new OffscreenCanvas(outW, outH);
-    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var ctx = canvas.getContext('2d', { willReadFrequently: !direct });
     var encErr = null, decErr = null, outCount = 0;
     var step = 1e6 / outFps, nextT = 0, endT = info.seconds * 1e6;
     var totalOut = Math.round(info.seconds * outFps);
@@ -520,7 +524,9 @@ window.addEventListener('resize', updateGutter);    // on window resize
           ctx.drawImage(frame, 0, 0, W, H);
           // emit as many output frames as fall inside this source frame (drops or duplicates to hit outFps)
           while (nextT < ts + d && nextT < endT - 1) {
-            var vf = canvasToI420Frame(ctx, outW, outH, Math.round(nextT), Math.round(step));
+            var vf = direct
+              ? new VideoFrame(canvas, { timestamp: Math.round(nextT), duration: Math.round(step) })
+              : canvasToI420Frame(ctx, outW, outH, Math.round(nextT), Math.round(step));
             encoder.encode(vf, { keyFrame: outCount % (outFps * 2) === 0 });
             vf.close();
             outCount++; nextT = outCount * step;
@@ -548,6 +554,7 @@ window.addEventListener('resize', updateGutter);    // on window resize
     if (encErr) throw new Error('Encode failed: ' + encErr.message);
     if (!outCount) throw new Error('No frames were decoded');
     muxer.finalize();
+    lastMode = direct ? 'direct' : 'i420';
     return new Uint8Array(target.buffer);
   }
 
@@ -584,20 +591,22 @@ window.addEventListener('resize', updateGutter);    // on window resize
     var fpsOff = !!targetFps && Math.abs(info.fps - targetFps) > 0.5;
     var outFps = fpsOff ? targetFps : Math.round(info.fps) || 25;
     if (info.identity && !fpsOff)
-      return { bytes: u8, fixed: false, retimed: false, fps: info.fps, engine: 'none', note: 'No changes needed' };
+      return { bytes: u8, fixed: false, retimed: false, fps: info.fps, engine: 'none', mode: 'none', fixMs: 0, note: 'No changes needed' };
 
     var what = [];
     if (!info.identity) what.push('rotating');
     if (fpsOff) what.push('converting ' + Math.round(info.fps) + '→' + targetFps + 'fps');
 
-    var out = null, engine = 'ffmpeg';
+    var out = null, engine = 'ffmpeg', t0 = performance.now();
     if (canUseWebCodecs()) {
       if (onStatus) onStatus(what.join(' and ') + '…');
       try { out = await runWebCodecs(info, outFps, onProgress); engine = 'webcodecs'; }
       catch (e) { console.warn('[CompressExpress] WebCodecs failed, falling back to ffmpeg', e); out = null; }
     }
     if (!out) out = await runFFmpeg(u8, info, outFps, fpsOff, onProgress, onStatus);
-    return { bytes: out, fixed: !info.identity, retimed: fpsOff, fps: outFps, engine: engine, note: what.join(', ') };
+    return { bytes: out, fixed: !info.identity, retimed: fpsOff, fps: outFps, engine: engine,
+             mode: engine === 'webcodecs' ? lastMode : 'ffmpeg', fixMs: Math.round(performance.now() - t0),
+             note: what.join(', ') };
   }
 
   global.fixForBroadsign = fixForBroadsign;
@@ -620,7 +629,7 @@ window.addEventListener('resize', updateGutter);    // on window resize
     const videoBtn    = document.getElementById('videoBtn');
     const videoFps    = document.getElementById('videoFps');
     const videoStatus = document.getElementById('videoStatus');
-    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '';
+    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '', videoRenderLogs = [];
 
 
     let images = [], exportResults = [], projectName = 'export';
@@ -677,7 +686,8 @@ function finderProofKB(userKB) {
         videoErrors.push(`${msg.data.name}: ${msg.data.message}`);
       }
       if (msg.type === 'video-result') {
-        const { name, bytes, used, settingErrors, fps } = msg.data;
+        const { name, bytes, used, settingErrors, fps, renderLog } = msg.data;
+        if (renderLog) videoRenderLogs.push(...renderLog);
         if (used) videoFigmaSetting = used;
         if (settingErrors && settingErrors.length) console.log('[CompressExpress] Figma MP4 setting errors', settingErrors);
         videoQueue = videoQueue.then(async () => {
@@ -686,7 +696,7 @@ function finderProofKB(userKB) {
               p => { videoStatus.textContent = `Fixing ${name}… ${Math.round(p * 100)}%`; },
               s => { videoStatus.textContent = `${name}: ${s}`; },
               fps);
-            videoOut.push({ name, bytes: r.bytes, fixed: r.fixed, retimed: r.retimed, engine: r.engine });
+            videoOut.push({ name, bytes: r.bytes, fixed: r.fixed, retimed: r.retimed, engine: r.engine, mode: r.mode, fixMs: r.fixMs });
           } catch (e) {
             videoErrors.push(`${name}: ${e.message}`);
           }
@@ -741,7 +751,7 @@ function finderProofKB(userKB) {
         });
       if (!chosen.length) return;
       videoBtn.disabled = exportBtn.disabled = true;
-      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = '';
+      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = ''; videoRenderLogs = [];
       progressBar.value = 0; progressBar.max = chosen.length;
       videoStatus.textContent = 'Starting…';
       toFigma({ type: 'export-video', chosen, fps: Number(videoFps.value) });
@@ -778,6 +788,14 @@ function finderProofKB(userKB) {
       if (videoFigmaSetting) msg += ` Figma setting used: ${videoFigmaSetting}.`;
       const engines = [...new Set(videoOut.map(v => v.engine).filter(e => e && e !== 'none'))];
       if (engines.length) msg += ` Engine: ${engines.map(e => e === 'webcodecs' ? 'fast (WebCodecs)' : 'compatibility (ffmpeg)').join(', ')}.`;
+      const s = ms => (ms / 1000).toFixed(1) + 's';
+      const okRender = videoRenderLogs.filter(r => r.ok).reduce((a, r) => a + r.ms, 0);
+      const failRender = videoRenderLogs.filter(r => !r.ok);
+      const fixTotal = videoOut.reduce((a, v) => a + (v.fixMs || 0), 0);
+      const modes = [...new Set(videoOut.map(v => v.mode).filter(m => m && m !== 'none'))];
+      msg += ` Timing: Figma render ${s(okRender)}`;
+      if (failRender.length) msg += ` + ${s(failRender.reduce((a, r) => a + r.ms, 0))} on rejected settings (${failRender.map(r => r.label).join(', ')})`;
+      msg += `, fix ${s(fixTotal)}${modes.length ? ' [' + modes.join(', ') + ']' : ''}.`;
       if (videoErrors.length) msg += ` ${videoErrors.length} failed: ${videoErrors.join(' | ')}`;
       videoStatus.textContent = msg;
       updateState();
