@@ -98,6 +98,12 @@
   .primary { width: 100%; height: 32px; border: none; border-radius: 6px; background: var(--brand); color: #fff; font-weight: 600; cursor: pointer; }
   .primary:hover:enabled { background: var(--brand-hover); }
   .primary:disabled { opacity: 0.5; cursor: default; }
+  .btnrow { display: flex; gap: 8px; }
+  .btnrow .primary { flex: 1; min-width: 0; }
+  .secondary { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--bg3); border-radius: 6px; background: transparent; color: var(--text); font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .secondary:hover:enabled { border-color: var(--text2); }
+  .secondary:disabled { opacity: 0.5; cursor: default; }
+  .secondary[hidden] { display: none; }
   .smooth[hidden], .field[hidden] { display: none; }
   .settings.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .settings.three .smooth, .settings.three .wide { grid-column: 1 / -1; }
@@ -135,7 +141,7 @@
     <footer>
       <div class="status" id="imgStatus"></div>
       <div class="bar" id="imgBar" hidden><div></div></div>
-      <button class="primary" id="imgBtn" disabled>Export images</button>
+      <div class="btnrow"><button class="primary" id="imgBtn" disabled>Export images</button><button class="secondary allbtn" hidden>Export all</button></div>
     </footer>
   </section>
 
@@ -163,7 +169,7 @@
     <footer>
       <div class="status" id="vidStatus"></div>
       <div class="bar" id="vidBar" hidden><div></div></div>
-      <button class="primary" id="vidBtn" disabled>Export MP4</button>
+      <div class="btnrow"><button class="primary" id="vidBtn" disabled>Export MP4</button><button class="secondary allbtn" hidden>Export all</button></div>
     </footer>
   </section>
 </div>
@@ -463,6 +469,7 @@
       };
       show($('imgNext'), 'images', 'video', 'Motion frame', 'Video');
       show($('vidNext'), 'video', 'images', 'image', 'Images');
+      renderAllBtn();
     }
 
     // ---------- images: settings block ----------
@@ -617,6 +624,15 @@
     $('vidAll').onchange = () => { motions().forEach((i) => { include[i.id] = $('vidAll').checked; }); renderVideo(); };
 
     function renderAll() { renderImages(); renderVideo(); }
+    function renderAllBtn() {
+      const ni = stills().filter((i) => inc(i.id)).length, nv = motions().filter((i) => inc(i.id)).length;
+      document.querySelectorAll('.allbtn').forEach((b) => {
+        b.hidden = !(ni && nv);
+        b.disabled = busy;
+        b.textContent = `Export all ${ni + nv}`;
+        b.title = `Export ${plural(ni, 'image')} and ${plural(nv, FORMAT_INFO[fmtNow()].label)} in one go, using each tab's settings, into one zip`;
+      });
+    }
 
     // ---------- shared helpers ----------
     function downloadBlob(blob, filename) {
@@ -661,16 +677,18 @@
 
     // ---------- image export ----------
     let imgResults = [], imgErrors = [], imgChosen = [];
-    $('imgBtn').onclick = () => {
+    $('imgBtn').onclick = () => startImages();
+    function startImages() {
       imgChosen = stills().filter((i) => inc(i.id)).map((i) => { const e = eff(i.id); return { id: i.id, format: e.fmt, scale: e.scale, kb: e.kb }; });
-      if (!imgChosen.length) return;
+      if (!imgChosen.length) return false;
       busy = true; imgResults = []; imgErrors = [];
       $('imgCard').hidden = true;
       $('imgBar').hidden = false; $('imgBar').firstElementChild.style.width = '0%';
       $('imgStatus').textContent = `Exporting ${plural(imgChosen.length, 'image')}…`;
       renderAll();
       toFigma({ type: 'export-images', chosen: imgChosen.map(({ id, format, scale }) => ({ id, format, scale })) });
-    };
+      return true;
+    }
 
     async function loadImg(blob) {
       return new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = URL.createObjectURL(blob); });
@@ -745,7 +763,7 @@
         blob = await zip.generateAsync({ type: 'blob' });
         filename = `${projectName}-images-${stamp()}.zip`;
       }
-      if (blob) saveWhenVisible(blob, filename);
+      if (blob && !allMode) saveWhenVisible(blob, filename);
       outs.forEach((o) => exported.images.add(o.id));
       busy = false; done.images = outs.length > 0;
       $('imgBar').hidden = true; $('imgStatus').textContent = '';
@@ -757,6 +775,13 @@
         blob, filename,
         details: imgErrors.length ? 'Failed: ' + imgErrors.join(' | ') : ''
       });
+      if (allMode) {
+        allImages = outs.map((o) => ({ name: o.name, data: o.blob }));
+        allImgErrors = imgErrors.slice();
+        setTab('video');
+        if (!startVideo()) finishAll([]);
+        return;
+      }
       renderAll();
     }
 
@@ -764,9 +789,10 @@
     let vQueue = Promise.resolve(), vOut = [], vErrors = [], vTotal = 0, vSetting = '', vLogs = [], vRendered = 0, vRenderFps = 0, vTargetFps = 24, vTargetQ = 'MEDIUM', vFormat = 'MP4', vLoop = 0, renderTimer = null;
     function stopRenderTimer() { if (renderTimer) { clearInterval(renderTimer); renderTimer = null; } $('vidBar').classList.remove('busy'); }
 
-    $('vidBtn').onclick = () => {
+    $('vidBtn').onclick = () => startVideo();
+    function startVideo() {
       const chosen = motions().filter((i) => inc(i.id)).map((i) => ({ id: i.id, scale: 1 }));
-      if (!chosen.length) return;
+      if (!chosen.length) return false;
       busy = true; vOut = []; vErrors = []; vTotal = chosen.length; vSetting = ''; vLogs = []; vRendered = 0; vRenderFps = 0;
       vTargetFps = Number(videoFps.value); vTargetQ = videoQuality.value; vFormat = fmtNow(); vLoop = Number(videoLoop.value);
       $('vidCard').hidden = true;
@@ -774,7 +800,33 @@
       $('vidStatus').textContent = 'Starting…';
       renderAll();
       toFigma({ type: 'export-video', chosen, format: vFormat, fps: vTargetFps, quality: vTargetQ, loopCount: vLoop, smooth: vFormat === 'MP4' && videoSmooth.checked && !API_FPS.includes(vTargetFps) });
-    };
+      return true;
+    }
+
+    // ---------- export all (images, then video, into one download) ----------
+    let allMode = false, allImages = [], allImgErrors = [];
+    document.querySelectorAll('.allbtn').forEach((b) => { b.onclick = () => {
+      if (busy) return;
+      allMode = true; allImages = []; allImgErrors = [];
+      $('imgCard').hidden = true; $('vidCard').hidden = true;
+      setTab('images');
+      if (!startImages()) { setTab('video'); if (!startVideo()) allMode = false; }
+    }; });
+    async function finishAll(videoOuts) {
+      allMode = false;
+      const FI = FORMAT_INFO[vFormat];
+      const files = allImages.concat(videoOuts.map((v) => ({ name: `${v.name}.${FI.ext}`, data: v.bytes })));
+      let blob = null, filename = '';
+      if (files.length === 1) { blob = files[0].data instanceof Blob ? files[0].data : new Blob([files[0].data]); filename = files[0].name; }
+      else if (files.length > 1) {
+        const zip = new JSZip(), used = {};
+        files.forEach((f) => { let n = f.name; used[n] = (used[n] || 0) + 1; if (used[n] > 1) n = n.replace(/(\.\w+)$/, `-${used[n]}$1`); zip.file(n, f.data); });
+        blob = await zip.generateAsync({ type: 'blob' });
+        filename = `${projectName}-export-${stamp()}.zip`;
+      }
+      if (blob) saveWhenVisible(blob, filename);
+      return { blob, filename, imgCount: allImages.length, imgErrors: allImgErrors };
+    }
 
     async function finalizeVideo() {
       stopRenderTimer();
@@ -787,7 +839,9 @@
         blob = await zip.generateAsync({ type: 'blob' });
         filename = `${projectName}-${vFormat === 'GIF' ? 'gif' : 'video'}-${stamp()}.zip`;
       }
-      if (blob) saveWhenVisible(blob, filename);
+      let combined = null;
+      if (allMode) combined = await finishAll(vOut);
+      else if (blob) saveWhenVisible(blob, filename);
       vOut.forEach((v) => exported.video.add(v.id));
 
       const n = vOut.length, failed = vErrors.length;
@@ -814,6 +868,21 @@
       const headline = n ? `${plural(n, FI.label)} ready for export${failed ? `, ${failed} failed` : ''}` : `Export failed${failed ? ': ' + vErrors[0] : ''}`;
       busy = false; done.video = n > 0;
       $('vidBar').hidden = true; $('vidStatus').textContent = '';
+      if (combined) {
+        const ni = combined.imgCount, fi = combined.imgErrors.length, nf = ni + n, ff = fi + failed;
+        const parts = [ni ? plural(ni, 'image') : '', n ? plural(n, FI.label) : ''].filter(Boolean).join(' + ');
+        const cTotal = combined.blob ? combined.blob.size : 0;
+        showCard($('vidCard'), {
+          ok: nf > 0 && !ff,
+          headline: nf ? `${plural(nf, 'file')} ready for export${ff ? `, ${ff} failed` : ''}` : 'Export failed',
+          summary: nf ? `${parts} · ${combined.filename} · ${mb(cTotal)}` : '',
+          blob: combined.blob, filename: combined.filename,
+          details: (fi ? 'Images failed: ' + combined.imgErrors.join(' | ') + '\n' : '') + lines.join('\n')
+        });
+        toFigma({ type: 'video-finished', message: nf ? `${plural(nf, 'file')} ready for export (if nothing downloaded, click Download in CompressExpress)` : 'Export failed', error: !(nf && !ff) });
+        renderAll();
+        return;
+      }
       showCard($('vidCard'), {
         ok: n > 0 && !failed, headline,
         summary: n ? `${n === 1 ? filename + ' · ' : ''}${vTargetFps}fps · ${vFormat === 'GIF' ? (vLoop ? `loops ${vLoop}×` : 'loops forever') : vTargetQ.toLowerCase()} · ${mb(total)} · ${s(okRender + fixTotal)}` : '',
