@@ -348,6 +348,11 @@ button:focus {
         <option value="24" selected>24fps</option>
         <option value="12">12fps</option>
       </select>
+      <select id="videoQuality" title="Figma render quality and output file size. Higher takes longer and makes bigger files.">
+        <option value="LOW">Low</option>
+        <option value="MEDIUM" selected>Medium</option>
+        <option value="HIGH">High</option>
+      </select>
       <label id="videoSmoothWrap" title="Figma can't render 25fps from plugins. Smooth renders at 60fps and converts (about twice as long); otherwise it renders at 30fps and converts." style="display:none; font-size:12px; color:#ccc; gap:4px; align-items:center;">
         <input type="checkbox" id="videoSmooth"> Smooth (slower)
       </label>
@@ -474,8 +479,12 @@ window.addEventListener('resize', updateGutter);    // on window resize
               typeof VideoDecoder !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && global.Mp4Muxer);
   }
 
+  // Output bitrate per quality (bits per pixel per frame), capped at 25 Mbps
+  var QUALITY_BPP = { LOW: 0.035, MEDIUM: 0.06, HIGH: 0.1 };
+  var QUALITY_CRF = { LOW: 26, MEDIUM: 22, HIGH: 18 };
+  var currentQuality = 'MEDIUM';
   async function pickEncoderConfig(w, h, fps) {
-    var bitrate = Math.min(25000000, Math.round(w * h * fps * 0.1));
+    var bitrate = Math.min(25000000, Math.round(w * h * fps * (QUALITY_BPP[currentQuality] || 0.06)));
     var codecs = ['avc1.640034', 'avc1.640033', 'avc1.4d0034', 'avc1.420034'];
     var accel = ['prefer-hardware', 'no-preference', 'prefer-software'];
     for (var i = 0; i < accel.length; i++) for (var j = 0; j < codecs.length; j++) {
@@ -587,7 +596,7 @@ window.addEventListener('resize', updateGutter);    // on window resize
     try {
       var args = ['-i', 'in.mp4', '-map', '0:v:0'];
       if (fpsOff) args.push('-vf', 'fps=' + outFps);
-      args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p',
+      args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(QUALITY_CRF[currentQuality] || 22), '-pix_fmt', 'yuv420p',
         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
         '-movflags', '+faststart', '-metadata:s:v:0', 'rotate=0', 'out.mp4');
       await ff.run.apply(ff, args);
@@ -601,7 +610,8 @@ window.addEventListener('resize', updateGutter);    // on window resize
   }
 
   // ---------- main ----------
-  async function fixForBroadsign(u8, onProgress, onStatus, targetFps) {
+  async function fixForBroadsign(u8, onProgress, onStatus, targetFps, quality) {
+    currentQuality = QUALITY_BPP[quality] ? quality : 'MEDIUM';
     var info = await inspect(u8);
     var fpsOff = !!targetFps && Math.abs(info.fps - targetFps) > 0.5;
     var outFps = fpsOff ? targetFps : Math.round(info.fps) || 25;
@@ -645,11 +655,12 @@ window.addEventListener('resize', updateGutter);    // on window resize
     const videoFps    = document.getElementById('videoFps');
     const videoStatus = document.getElementById('videoStatus');
     const videoSmooth = document.getElementById('videoSmooth');
+    const videoQuality = document.getElementById('videoQuality');
     const videoSmoothWrap = document.getElementById('videoSmoothWrap');
     const API_FPS = [12, 24, 30, 60];
     function syncSmooth() { videoSmoothWrap.style.display = API_FPS.includes(Number(videoFps.value)) ? 'none' : 'inline-flex'; }
     videoFps.addEventListener('change', syncSmooth);
-    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '', videoRenderLogs = [], videoRendered = 0, videoRenderFps = 0, videoTargetFps = 24, renderTimer = null;
+    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '', videoRenderLogs = [], videoRendered = 0, videoRenderFps = 0, videoTargetFps = 24, videoTargetQuality = 'MEDIUM', renderTimer = null;
     function stopRenderTimer() { if (renderTimer) { clearInterval(renderTimer); renderTimer = null; } progressBar.classList.remove('busy'); }
 
 
@@ -728,7 +739,7 @@ function finderProofKB(userKB) {
                 progressBar.max = videoTotal; progressBar.value = videoOut.length + videoErrors.length + p;
               },
               s => { videoStatus.textContent = `${name}: ${s}`; },
-              fps);
+              fps, videoTargetQuality);
             videoOut.push({ name, bytes: r.bytes, fixed: r.fixed, retimed: r.retimed, engine: r.engine, mode: r.mode, fixMs: r.fixMs });
           } catch (e) {
             videoErrors.push(`${name}: ${e.message}`);
@@ -784,11 +795,11 @@ function finderProofKB(userKB) {
         });
       if (!chosen.length) return;
       videoBtn.disabled = exportBtn.disabled = true;
-      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = ''; videoRenderLogs = []; videoRendered = 0; videoRenderFps = 0; videoTargetFps = Number(videoFps.value);
+      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = ''; videoRenderLogs = []; videoRendered = 0; videoRenderFps = 0; videoTargetFps = Number(videoFps.value); videoTargetQuality = videoQuality.value;
       progressBar.value = 0; progressBar.max = chosen.length;
       videoStatus.textContent = 'Starting…';
       progressBar.value = 0; progressBar.classList.add('busy');
-      toFigma({ type: 'export-video', chosen, fps: Number(videoFps.value), smooth: videoSmooth.checked && !API_FPS.includes(Number(videoFps.value)) });
+      toFigma({ type: 'export-video', chosen, fps: Number(videoFps.value), quality: videoQuality.value, smooth: videoSmooth.checked && !API_FPS.includes(Number(videoFps.value)) });
     };
 
     function downloadBlob(blob, filename) {
@@ -832,7 +843,8 @@ function finderProofKB(userKB) {
       const modes = [...new Set(videoOut.map(v => v.mode).filter(m => m && m !== 'none'))];
       const engines = [...new Set(videoOut.map(v => v.engine).filter(e => e && e !== 'none'))];
       const lines = [];
-      lines.push(`${n} exported, ${fixed} rotation-fixed${retimed ? `, ${retimed} frame-rate converted` : ''}.`);
+      const mb = videoOut.reduce((a, v) => a + v.bytes.length, 0) / 1048576;
+      lines.push(`${n} exported, ${fixed} rotation-fixed${retimed ? `, ${retimed} frame-rate converted` : ''}. Quality: ${videoTargetQuality.toLowerCase()}, ${mb.toFixed(1)} MB.`);
       if (videoRenderFps && videoRenderFps !== videoTargetFps) lines.push(`Figma rendered at ${videoRenderFps}fps (plugins can't render ${fpsTxt}), converted to ${fpsTxt}${videoRenderFps === 60 ? ' (smooth)' : ''}.`);
       if (videoFigmaSetting) lines.push(`Figma setting: ${videoFigmaSetting}`);
       if (engines.length) lines.push(`Engine: ${engines.map(e => e === 'webcodecs' ? 'fast (WebCodecs)' : 'compatibility (ffmpeg)').join(', ')}${modes.length ? ' [' + modes.join(', ') + ']' : ''}`);
