@@ -302,6 +302,16 @@ button:focus {
 #videoStatus .ok { color: #4cd964; }
 #videoStatus .warn { color: #ffcc00; }
 #videoStatus a { color: #8ab4f8; margin-left: 6px; cursor: pointer; }
+#videoSmoothWrap input[type="checkbox"] { width: 14px !important; height: 14px !important; min-width: 0 !important; padding: 0 !important; margin: 0 4px 0 0 !important; flex: none !important; }
+#progressBar.busy {
+  background: repeating-linear-gradient(-45deg, #3a3a3a 0 10px, #6b8fd6 10px 20px);
+  background-size: 28px 28px;
+  animation: ceBusy 0.8s linear infinite;
+}
+#progressBar.busy::-webkit-progress-bar { background: transparent; }
+#progressBar.busy::-webkit-progress-value { background: transparent; }
+#progressBar.busy::-moz-progress-bar { background: transparent; }
+@keyframes ceBusy { from { background-position: 0 0; } to { background-position: 28px 0; } }
 #videoDetails { margin-top: 4px; font-size: 11px; color: #888; white-space: pre-wrap; }
 #videoFps { width: 80px; }
   </style>
@@ -641,7 +651,8 @@ window.addEventListener('resize', updateGutter);    // on window resize
     const API_FPS = [12, 24, 30, 60];
     function syncSmooth() { videoSmoothWrap.style.display = API_FPS.includes(Number(videoFps.value)) ? 'none' : 'inline-flex'; }
     videoFps.addEventListener('change', syncSmooth);
-    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '', videoRenderLogs = [], videoRendered = 0, videoRenderFps = 0;
+    let videoQueue = Promise.resolve(), videoOut = [], videoErrors = [], videoTotal = 0, videoFigmaSetting = '', videoRenderLogs = [], videoRendered = 0, videoRenderFps = 0, videoTargetFps = 24, renderTimer = null;
+    function stopRenderTimer() { if (renderTimer) { clearInterval(renderTimer); renderTimer = null; } progressBar.classList.remove('busy'); }
 
 
     let images = [], exportResults = [], projectName = 'export';
@@ -693,13 +704,19 @@ function finderProofKB(userKB) {
       }
       if (msg.type === 'video-status') {
         videoRendered++;
-        videoStatus.textContent = `Rendering ${msg.data.name} in Figma… (${Math.min(videoRendered, videoTotal)} of ${videoTotal})`;
-        progressBar.removeAttribute('value'); // indeterminate while Figma renders (no progress is reported)
+        const rName = msg.data.name, rIdx = Math.min(videoRendered, videoTotal), rStart = Date.now();
+        const counter = videoTotal > 1 ? ` (${rIdx} of ${videoTotal})` : '';
+        stopRenderTimer();
+        progressBar.value = 0; progressBar.classList.add('busy'); // Figma reports no render progress, so show activity + elapsed time
+        const tick = () => { videoStatus.textContent = `Rendering ${rName} in Figma${counter}… ${Math.round((Date.now() - rStart) / 1000)}s`; };
+        tick(); renderTimer = setInterval(tick, 1000);
       }
       if (msg.type === 'video-error') {
+        stopRenderTimer();
         videoErrors.push(`${msg.data.name}: ${msg.data.message}`);
       }
       if (msg.type === 'video-result') {
+        stopRenderTimer();
         const { name, bytes, used, settingErrors, fps, renderFps, renderLog } = msg.data;
         if (renderFps) videoRenderFps = renderFps;
         if (renderLog) videoRenderLogs.push(...renderLog);
@@ -769,10 +786,10 @@ function finderProofKB(userKB) {
         });
       if (!chosen.length) return;
       videoBtn.disabled = exportBtn.disabled = true;
-      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = ''; videoRenderLogs = []; videoRendered = 0; videoRenderFps = 0;
+      videoOut = []; videoErrors = []; videoTotal = chosen.length; videoFigmaSetting = ''; videoRenderLogs = []; videoRendered = 0; videoRenderFps = 0; videoTargetFps = Number(videoFps.value);
       progressBar.value = 0; progressBar.max = chosen.length;
       videoStatus.textContent = 'Starting…';
-      progressBar.removeAttribute('value');
+      progressBar.value = 0; progressBar.classList.add('busy');
       toFigma({ type: 'export-video', chosen, fps: Number(videoFps.value), smooth: videoSmooth.checked && !API_FPS.includes(Number(videoFps.value)) });
     };
 
@@ -785,6 +802,7 @@ function finderProofKB(userKB) {
     }
 
     async function finalizeVideo() {
+      stopRenderTimer();
       if (videoOut.length === 1) {
         downloadBlob(new Blob([videoOut[0].bytes], { type: 'video/mp4' }), `${videoOut[0].name}.mp4`);
       } else if (videoOut.length > 1) {
@@ -802,7 +820,7 @@ function finderProofKB(userKB) {
       const fixed = videoOut.filter(v => v.fixed).length;
       const retimed = videoOut.filter(v => v.retimed).length;
       const n = videoOut.length, failed = videoErrors.length;
-      const fpsTxt = `${videoFps.value}fps`;
+      const fpsTxt = `${videoTargetFps}fps`;
       let short;
       if (n && !failed) short = `Exported ${n} MP4${n > 1 ? 's' : ''} at ${fpsTxt}, ready for Broadsign`;
       else if (n && failed) short = `Exported ${n} MP4${n > 1 ? 's' : ''} at ${fpsTxt}, ${failed} failed`;
@@ -817,7 +835,7 @@ function finderProofKB(userKB) {
       const engines = [...new Set(videoOut.map(v => v.engine).filter(e => e && e !== 'none'))];
       const lines = [];
       lines.push(`${n} exported, ${fixed} rotation-fixed${retimed ? `, ${retimed} frame-rate converted` : ''}.`);
-      if (videoRenderFps && String(videoRenderFps) !== videoFps.value) lines.push(`Figma rendered at ${videoRenderFps}fps (plugins can't render ${fpsTxt}), converted to ${fpsTxt}${videoRenderFps === 60 ? ' (smooth)' : ''}.`);
+      if (videoRenderFps && videoRenderFps !== videoTargetFps) lines.push(`Figma rendered at ${videoRenderFps}fps (plugins can't render ${fpsTxt}), converted to ${fpsTxt}${videoRenderFps === 60 ? ' (smooth)' : ''}.`);
       if (videoFigmaSetting) lines.push(`Figma setting: ${videoFigmaSetting}`);
       if (engines.length) lines.push(`Engine: ${engines.map(e => e === 'webcodecs' ? 'fast (WebCodecs)' : 'compatibility (ffmpeg)').join(', ')}${modes.length ? ' [' + modes.join(', ') + ']' : ''}`);
       let timing = `Timing: Figma render ${s(okRender)}`;
