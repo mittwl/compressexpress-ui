@@ -98,7 +98,9 @@
   .primary { width: 100%; height: 32px; border: none; border-radius: 6px; background: var(--brand); color: #fff; font-weight: 600; cursor: pointer; }
   .primary:hover:enabled { background: var(--brand-hover); }
   .primary:disabled { opacity: 0.5; cursor: default; }
-  .smooth[hidden] { display: none; }
+  .smooth[hidden], .field[hidden] { display: none; }
+  .settings.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .settings.three .smooth { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -139,11 +141,17 @@
 
   <!-- VIDEO -->
   <section class="panel" id="panelVideo" role="tabpanel" aria-labelledby="tabVideo" hidden>
-    <div class="settings">
+    <div class="settings three">
+      <label class="field">Format
+        <select class="ctl" id="videoFormat" title="MP4 for screens (rotation-fixed), GIF for banners and email, WebM for web"><option value="MP4" selected>MP4</option><option value="GIF">GIF</option><option value="WEBM">WebM</option></select>
+      </label>
       <label class="field">Frame rate
         <select class="ctl" id="videoFps"><option value="60">60fps</option><option value="30">30fps</option><option value="25">25fps</option><option value="24" selected>24fps</option><option value="12">12fps</option></select>
       </label>
-      <label class="field">Quality
+      <label class="field" id="loopWrap" hidden>Loop
+        <select class="ctl" id="videoLoop" title="How many times the GIF repeats"><option value="0" selected>Forever</option><option value="1">1 time</option><option value="2">2 times</option><option value="3">3 times</option><option value="5">5 times</option></select>
+      </label>
+      <label class="field" id="qualityWrap">Quality
         <select class="ctl" id="videoQuality" title="Figma render quality and output file size"><option value="LOW">Low</option><option value="MEDIUM" selected>Medium</option><option value="HIGH">High</option></select>
       </label>
       <label class="check smooth" id="smoothWrap" hidden title="Figma can't render 25fps from plugins. Smooth renders at 60fps and converts (about twice as long); otherwise it renders at 30fps and converts."><input type="checkbox" id="videoSmooth"> Smooth 25fps (slower)</label>
@@ -558,15 +566,34 @@
     $('imgAll').onchange = () => { stills().forEach((i) => { include[i.id] = $('imgAll').checked; }); renderImages(); };
 
     // ---------- video: list ----------
-    const videoFps = $('videoFps'), videoQuality = $('videoQuality'), videoSmooth = $('videoSmooth');
-    function syncSmooth() { $('smoothWrap').hidden = API_FPS.includes(Number(videoFps.value)); }
-    videoFps.addEventListener('change', syncSmooth);
+    const videoFps = $('videoFps'), videoQuality = $('videoQuality'), videoSmooth = $('videoSmooth'), videoFormat = $('videoFormat'), videoLoop = $('videoLoop');
+    // Frame rates per format: MP4 adds 25 (rendered at 30/60 and converted); GIF and WebM use Figma's own list
+    const FORMAT_FPS = { MP4: [60, 30, 25, 24, 12], WEBM: [60, 30, 24, 12], GIF: [30, 24, 15, 12, 8] };
+    const FORMAT_DEFAULT_FPS = { MP4: 24, WEBM: 24, GIF: 15 };
+    const FORMAT_INFO = {
+      MP4: { ext: 'mp4', mime: 'video/mp4', label: 'MP4' },
+      WEBM: { ext: 'webm', mime: 'video/webm', label: 'WebM' },
+      GIF: { ext: 'gif', mime: 'image/gif', label: 'GIF' }
+    };
+    const fmtNow = () => videoFormat.value;
+    const fpsByFormat = {};
+    function syncSmooth() { $('smoothWrap').hidden = fmtNow() !== 'MP4' || API_FPS.includes(Number(videoFps.value)); }
+    function syncFormat() {
+      const f = fmtNow(), list = FORMAT_FPS[f];
+      const want = fpsByFormat[f] || FORMAT_DEFAULT_FPS[f];
+      videoFps.innerHTML = list.map((n) => `<option value="${n}"${n === want ? ' selected' : ''}>${n}fps</option>`).join('');
+      $('loopWrap').hidden = f !== 'GIF';
+      $('qualityWrap').hidden = f === 'GIF';
+      syncSmooth(); renderVideo();
+    }
+    videoFps.addEventListener('change', () => { fpsByFormat[fmtNow()] = Number(videoFps.value); syncSmooth(); });
+    videoFormat.addEventListener('change', syncFormat);
 
     function renderVideo() {
       const list = $('vidList'), m = motions();
       $('vidListLabel').textContent = m.length ? `${plural(m.length, 'Motion frame')} in selection` : 'Motion frames in selection';
       if (!m.length) {
-        list.innerHTML = `<div class="empty">${items.length ? 'No Motion frames in this selection. Video export needs a top-level frame with Motion animation.' : 'Select top-level frames with Motion animation to export them as MP4.'}</div>`;
+        list.innerHTML = `<div class="empty">${items.length ? 'No Motion frames in this selection. Video export needs a top-level frame with Motion animation.' : 'Select top-level frames with Motion animation to export them as ${FORMAT_INFO[fmtNow()].label}.'}</div>`;
       } else {
         list.innerHTML = m.map((i) => `<div class="row" data-id="${esc(i.id)}">
             <input type="checkbox" class="inc" aria-label="Include ${esc(i.name)}"${inc(i.id) ? ' checked' : ''}>
@@ -578,7 +605,8 @@
       $('vidAll').checked = m.length > 0 && incCount === m.length;
       $('vidAll').indeterminate = incCount > 0 && incCount < m.length;
       $('vidAll').disabled = !m.length;
-      $('vidBtn').textContent = incCount ? `Export ${plural(incCount, 'MP4')}` : 'Export MP4';
+      const fl = FORMAT_INFO[fmtNow()].label;
+      $('vidBtn').textContent = incCount ? `Export ${plural(incCount, fl)}` : `Export ${fl}`;
       $('vidBtn').disabled = busy || !incCount;
       renderTabs(); renderNext();
     }
@@ -733,30 +761,31 @@
     }
 
     // ---------- video export ----------
-    let vQueue = Promise.resolve(), vOut = [], vErrors = [], vTotal = 0, vSetting = '', vLogs = [], vRendered = 0, vRenderFps = 0, vTargetFps = 24, vTargetQ = 'MEDIUM', renderTimer = null;
+    let vQueue = Promise.resolve(), vOut = [], vErrors = [], vTotal = 0, vSetting = '', vLogs = [], vRendered = 0, vRenderFps = 0, vTargetFps = 24, vTargetQ = 'MEDIUM', vFormat = 'MP4', vLoop = 0, renderTimer = null;
     function stopRenderTimer() { if (renderTimer) { clearInterval(renderTimer); renderTimer = null; } $('vidBar').classList.remove('busy'); }
 
     $('vidBtn').onclick = () => {
       const chosen = motions().filter((i) => inc(i.id)).map((i) => ({ id: i.id, scale: 1 }));
       if (!chosen.length) return;
       busy = true; vOut = []; vErrors = []; vTotal = chosen.length; vSetting = ''; vLogs = []; vRendered = 0; vRenderFps = 0;
-      vTargetFps = Number(videoFps.value); vTargetQ = videoQuality.value;
+      vTargetFps = Number(videoFps.value); vTargetQ = videoQuality.value; vFormat = fmtNow(); vLoop = Number(videoLoop.value);
       $('vidCard').hidden = true;
       $('vidBar').hidden = false; $('vidBar').firstElementChild.style.width = '0%'; $('vidBar').classList.add('busy');
       $('vidStatus').textContent = 'Starting…';
       renderAll();
-      toFigma({ type: 'export-video', chosen, fps: vTargetFps, quality: vTargetQ, smooth: videoSmooth.checked && !API_FPS.includes(vTargetFps) });
+      toFigma({ type: 'export-video', chosen, format: vFormat, fps: vTargetFps, quality: vTargetQ, loopCount: vLoop, smooth: vFormat === 'MP4' && videoSmooth.checked && !API_FPS.includes(vTargetFps) });
     };
 
     async function finalizeVideo() {
       stopRenderTimer();
       let blob = null, filename = '';
-      if (vOut.length === 1) { blob = new Blob([vOut[0].bytes], { type: 'video/mp4' }); filename = `${vOut[0].name}.mp4`; }
+      const FI = FORMAT_INFO[vFormat];
+      if (vOut.length === 1) { blob = new Blob([vOut[0].bytes], { type: FI.mime }); filename = `${vOut[0].name}.${FI.ext}`; }
       else if (vOut.length > 1) {
         const zip = new JSZip(), used = {};
-        vOut.forEach((v) => { let n = v.name; used[n] = (used[n] || 0) + 1; if (used[n] > 1) n = `${n}-${used[n]}`; zip.file(`${n}.mp4`, v.bytes); });
+        vOut.forEach((v) => { let n = v.name; used[n] = (used[n] || 0) + 1; if (used[n] > 1) n = `${n}-${used[n]}`; zip.file(`${n}.${FI.ext}`, v.bytes); });
         blob = await zip.generateAsync({ type: 'blob' });
-        filename = `${projectName}-video-${stamp()}.zip`;
+        filename = `${projectName}-${vFormat === 'GIF' ? 'gif' : 'video'}-${stamp()}.zip`;
       }
       if (blob) saveWhenVisible(blob, filename);
       vOut.forEach((v) => exported.video.add(v.id));
@@ -770,23 +799,24 @@
       const engines = [...new Set(vOut.map((v) => v.engine).filter((e) => e && e !== 'none'))];
       const modes = [...new Set(vOut.map((v) => v.mode).filter((m) => m && m !== 'none'))];
       const lines = [];
-      lines.push(`${n} exported, ${fixed} rotation-fixed${retimed ? `, ${retimed} frame-rate converted` : ''}.`);
+      if (vFormat === 'MP4') lines.push(`${n} exported, ${fixed} rotation-fixed${retimed ? `, ${retimed} frame-rate converted` : ''}.`);
+      else lines.push(`${n} ${FI.label} exported straight from Figma (no rotation fix needed).`);
       if (vRenderFps && vRenderFps !== vTargetFps) lines.push(`Figma rendered at ${vRenderFps}fps (plugins can't render ${vTargetFps}fps), converted to ${vTargetFps}fps${vRenderFps === 60 ? ' (smooth)' : ''}.`);
       if (vSetting) lines.push(`Figma setting: ${vSetting}`);
       if (engines.length) lines.push(`Engine: ${engines.map((e) => (e === 'webcodecs' ? 'fast (WebCodecs)' : 'compatibility (ffmpeg)')).join(', ')}${modes.length ? ' [' + modes.join(', ') + ']' : ''}`);
       let timing = `Timing: Figma render ${s(okRender)}`;
       if (failRender.length) timing += ` + ${s(failRender.reduce((a, r) => a + r.ms, 0))} on rejected settings`;
-      lines.push(timing + `, fix ${s(fixTotal)}`);
+      lines.push(timing + (vFormat === 'MP4' ? `, fix ${s(fixTotal)}` : ''));
       if (failed) lines.push('Failed: ' + vErrors.join(' | '));
       console.log('[CompressExpress] video export details\n' + lines.join('\n'));
 
       const total = vOut.reduce((a, v) => a + v.bytes.length, 0);
-      const headline = n ? `${plural(n, 'MP4')} ready for export${failed ? `, ${failed} failed` : ''}` : `Export failed${failed ? ': ' + vErrors[0] : ''}`;
+      const headline = n ? `${plural(n, FI.label)} ready for export${failed ? `, ${failed} failed` : ''}` : `Export failed${failed ? ': ' + vErrors[0] : ''}`;
       busy = false; done.video = n > 0;
       $('vidBar').hidden = true; $('vidStatus').textContent = '';
       showCard($('vidCard'), {
         ok: n > 0 && !failed, headline,
-        summary: n ? `${n === 1 ? filename + ' · ' : ''}${vTargetFps}fps · ${vTargetQ.toLowerCase()} · ${mb(total)} · ${s(okRender + fixTotal)}` : '',
+        summary: n ? `${n === 1 ? filename + ' · ' : ''}${vTargetFps}fps · ${vFormat === 'GIF' ? (vLoop ? `loops ${vLoop}×` : 'loops forever') : vTargetQ.toLowerCase()} · ${mb(total)} · ${s(okRender + fixTotal)}` : '',
         blob, filename, details: lines.join('\n')
       });
       toFigma({ type: 'video-finished', message: n ? `${headline} (if nothing downloaded, click Download in CompressExpress)` : headline, error: !(n && !failed) });
@@ -838,8 +868,13 @@
         if (renderFps) vRenderFps = renderFps;
         if (renderLog) vLogs.push(...renderLog);
         if (used) vSetting = used;
-        if (settingErrors && settingErrors.length) console.log('[CompressExpress] Figma MP4 setting errors', settingErrors);
+        if (settingErrors && settingErrors.length) console.log('[CompressExpress] Figma export setting errors', settingErrors);
         vQueue = vQueue.then(async () => {
+          if (vFormat !== 'MP4') {
+            vOut.push({ id, name, bytes: new Uint8Array(bytes), fixed: false, retimed: false, engine: 'none', mode: 'none', fixMs: 0 });
+            $('vidBar').firstElementChild.style.width = `${Math.round(100 * (vOut.length + vErrors.length) / vTotal)}%`;
+            return;
+          }
           try {
             const r = await fixForBroadsign(new Uint8Array(bytes),
               (p) => { $('vidStatus').textContent = `Fixing ${name}… ${Math.round(p * 100)}%`; $('vidBar').firstElementChild.style.width = `${Math.round(100 * (vOut.length + vErrors.length + p) / vTotal)}%`; },
@@ -853,7 +888,7 @@
       if (msg.type === 'video-complete') vQueue = vQueue.then(finalizeVideo);
     };
 
-    syncSmooth();
+    syncFormat();
     renderAll();
     window.addEventListener('load', () => toFigma({ type: 'get-images' }));
   })();
