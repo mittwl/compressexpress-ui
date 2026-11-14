@@ -304,12 +304,14 @@ button:focus {
 #videoStatus a { color: #8ab4f8; margin-left: 6px; cursor: pointer; }
 #videoSmoothWrap input[type="checkbox"] { width: 14px !important; height: 14px !important; min-width: 0 !important; padding: 0 !important; margin: 0 4px 0 0 !important; flex: none !important; }
 #progressBar.busy {
-  /* Static on purpose: animating while Figma renders appeared to halve Figma's render speed */
-  background: repeating-linear-gradient(-45deg, #3a3a3a 0 10px, #4f6a9f 10px 20px);
+  background: repeating-linear-gradient(-45deg, #3a3a3a 0 10px, #6b8fd6 10px 20px);
+  background-size: 28px 28px;
+  animation: ceBusy 0.8s linear infinite;
 }
 #progressBar.busy::-webkit-progress-bar { background: transparent; }
 #progressBar.busy::-webkit-progress-value { background: transparent; }
 #progressBar.busy::-moz-progress-bar { background: transparent; }
+@keyframes ceBusy { from { background-position: 0 0; } to { background-position: 28px 0; } }
 #videoDetails { margin-top: 4px; font-size: 11px; color: #888; white-space: pre-wrap; }
 #videoFps { width: 80px; }
   </style>
