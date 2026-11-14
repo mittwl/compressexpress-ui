@@ -100,7 +100,7 @@
   .primary:disabled { opacity: 0.5; cursor: default; }
   .smooth[hidden], .field[hidden] { display: none; }
   .settings.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .settings.three .smooth { grid-column: 1 / -1; }
+  .settings.three .smooth, .settings.three .wide { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -115,7 +115,7 @@
 
   <!-- IMAGES -->
   <section class="panel" id="panelImages" role="tabpanel" aria-labelledby="tabImages">
-    <div class="settings">
+    <div class="settings three">
       <div class="head"><b id="imgHead">Defaults <span class="muted">· all images</span></b><a id="imgClear" hidden>Clear</a></div>
       <label class="field">Format
         <select class="ctl" id="setFmt"><option value="" hidden>Mixed</option><option>JPG</option><option>PNG</option><option>WEBP</option></select>
@@ -123,10 +123,10 @@
       <label class="field">Scale
         <select class="ctl" id="setScale"><option value="" hidden>Mixed</option><option value="0.5">0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="3">3x</option></select>
       </label>
-      <label class="field">Max file size
+      <label class="field" title="Maximum file size per image">Max size
         <span class="kbwrap"><input class="ctl" id="setKb" type="text" inputmode="numeric" value="100">KB</span>
       </label>
-      <label class="check bottom"><input type="checkbox" id="skipOpt"> Skip optimisation</label>
+      <label class="check wide"><input type="checkbox" id="skipOpt"> Skip optimisation</label>
     </div>
     <div class="listhead"><span id="imgListLabel">Stills in selection</span><label class="check"><input type="checkbox" id="imgAll" checked> All</label></div>
     <div class="list" id="imgList"></div>
