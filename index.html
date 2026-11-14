@@ -302,6 +302,9 @@ button:focus {
 #videoStatus .ok { color: #4cd964; }
 #videoStatus .warn { color: #ffcc00; }
 #videoStatus a { color: #8ab4f8; margin-left: 6px; cursor: pointer; }
+#videoStatus .videoHint { margin-top: 3px; font-size: 11px; color: #8a8a8a; }
+#videoDownloadBtn { margin-left: 8px; height: 22px; padding: 0 10px; font-size: 12px; border: none; border-radius: 4px; background: #3d7bd9; color: #fff; cursor: pointer; }
+#videoDownloadBtn:hover { background: #5591ea; }
 #videoSmoothWrap input[type="checkbox"] { width: 14px !important; height: 14px !important; min-width: 0 !important; padding: 0 !important; margin: 0 4px 0 0 !important; flex: none !important; }
 #progressBar.busy {
   background: repeating-linear-gradient(-45deg, #3a3a3a 0 10px, #6b8fd6 10px 20px);
@@ -719,7 +722,13 @@ function finderProofKB(userKB) {
         const counter = videoTotal > 1 ? ` (${rIdx} of ${videoTotal})` : '';
         stopRenderTimer();
         progressBar.value = 0; progressBar.classList.add('busy'); // Figma reports no render progress, so show activity + elapsed time
-        const tick = () => { videoStatus.textContent = `Rendering ${rName} in Figma${counter}… ${Math.round((Date.now() - rStart) / 1000)}s`; };
+        const tick = () => {
+          videoStatus.textContent = `Rendering ${rName} in Figma${counter}… ${Math.round((Date.now() - rStart) / 1000)}s`;
+          const hint = document.createElement('div');
+          hint.className = 'videoHint';
+          hint.textContent = "If Figma's export window opens, close it (don't use its Download). Your fixed file saves when you're back.";
+          videoStatus.appendChild(hint);
+        };
         tick(); renderTimer = setInterval(tick, 1000);
       }
       if (msg.type === 'video-error') {
@@ -812,10 +821,13 @@ function finderProofKB(userKB) {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    let lastVideoBlob = null, lastVideoName = '';
     async function finalizeVideo() {
       stopRenderTimer();
+      lastVideoBlob = null;
       if (videoOut.length === 1) {
-        downloadBlob(new Blob([videoOut[0].bytes], { type: 'video/mp4' }), `${videoOut[0].name}.mp4`);
+        lastVideoBlob = new Blob([videoOut[0].bytes], { type: 'video/mp4' });
+        lastVideoName = `${videoOut[0].name}.mp4`;
       } else if (videoOut.length > 1) {
         const zip = new JSZip();
         const used = {};
@@ -826,7 +838,21 @@ function finderProofKB(userKB) {
         });
         const now = new Date();
         const ts = [now.getHours(), now.getMinutes(), now.getSeconds()].map(x => String(x).padStart(2, '0')).join('');
-        downloadBlob(await zip.generateAsync({ type: 'blob' }), `${projectName}-video-${ts}.zip`);
+        lastVideoBlob = await zip.generateAsync({ type: 'blob' });
+        lastVideoName = `${projectName}-video-${ts}.zip`;
+      }
+      // Try to save automatically. Figma can block this when its own Video Export window is in front,
+      // so a Download button is always shown as well.
+      if (lastVideoBlob) {
+        const blob = lastVideoBlob, name = lastVideoName;
+        const save = () => { try { downloadBlob(blob, name); } catch (e) {} };
+        if (document.hidden) {
+          // Figma's export window is in front: save as soon as the plugin is visible again
+          const onVis = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', onVis); save(); } };
+          document.addEventListener('visibilitychange', onVis);
+        } else {
+          save();
+        }
       }
       const fixed = videoOut.filter(v => v.fixed).length;
       const retimed = videoOut.filter(v => v.retimed).length;
@@ -862,10 +888,14 @@ function finderProofKB(userKB) {
       const link = document.createElement('a'); link.textContent = 'Details';
       const det = document.createElement('div'); det.id = 'videoDetails'; det.hidden = true; det.textContent = lines.join('\n');
       link.onclick = (e) => { e.preventDefault(); det.hidden = !det.hidden; link.textContent = det.hidden ? 'Details' : 'Hide details'; };
-      videoStatus.append(head, link, det);
+      const dl = document.createElement('button');
+      dl.id = 'videoDownloadBtn'; dl.textContent = '⬇ Download';
+      dl.title = lastVideoName || '';
+      dl.onclick = () => { if (lastVideoBlob) downloadBlob(lastVideoBlob, lastVideoName); };
+      if (lastVideoBlob) videoStatus.append(head, dl, link, det); else videoStatus.append(head, link, det);
       console.log('[CompressExpress] video export details\n' + lines.join('\n'));
 
-      toFigma({ type: 'video-finished', message: short, error: !(n && !failed) });
+      toFigma({ type: 'video-finished', message: short + (n ? ' (if nothing downloaded, click Download in CompressExpress)' : ''), error: !(n && !failed) });
       updateState();
       resetProgress();
     }
