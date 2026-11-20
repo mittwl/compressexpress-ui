@@ -912,7 +912,7 @@
       const list = $('vidList'), m = motions();
       $('vidListLabel').textContent = m.length ? `${plural(m.length, 'Motion frame')} in selection` : 'Motion frames in selection';
       if (!m.length) {
-        list.innerHTML = `<div class="empty">${items.length ? 'No Motion frames in this selection. Video export needs a top-level frame with Motion animation.' : 'Select top-level frames with Motion animation to export them as ${FORMAT_INFO[fmtNow()].label}.'}</div>`;
+        list.innerHTML = `<div class="empty">${items.length ? 'None of the selected frames are animated. Pick a top-level frame that has Motion animation.' : 'Select an animated frame in Figma to export it.'}</div>`;
       } else {
         list.innerHTML = m.map((i) => `<div class="row" data-id="${esc(i.id)}">
             <input type="checkbox" class="inc" aria-label="Include ${esc(i.name)}"${inc(i.id) ? ' checked' : ''}>
