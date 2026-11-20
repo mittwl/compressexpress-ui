@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CompressExpress Motion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: var(--figma-color-bg, #2c2c2c);
+    --bg2: var(--figma-color-bg-secondary, #383838);
+    --bg3: var(--figma-color-bg-tertiary, #4a4a4a);
+    --border: var(--figma-color-border, #444444);
+    --text: var(--figma-color-text, #ffffff);
+    --text2: var(--figma-color-text-secondary, #b3b3b3);
+    --sel: var(--figma-color-bg-selected, #3a4553);
+    --link: var(--figma-color-text-brand, #7cc4ff);
+    --ok: var(--figma-color-text-success, #7ee2a8);
+    --warn: var(--figma-color-text-warning, #ffcd29);
+    --brand: #0b6fd6;
+    --brand-hover: #2382e6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 11px/16px Inter, system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; }
+  button, select, input { font: inherit; color: inherit; }
+  a { color: var(--link); text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  #app { display: flex; flex-direction: column; height: 100vh; }
+  header { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: none; }
+  header .title { font-weight: 600; }
+  .tabs { display: flex; gap: 2px; background: var(--bg2); border-radius: 6px; padding: 2px; }
+  .tab { height: 24px; padding: 0 8px; display: flex; align-items: center; gap: 6px; border: none; border-radius: 5px; background: transparent; color: var(--text2); font-weight: 500; cursor: pointer; }
+  .tab[aria-selected="true"] { background: var(--bg3); color: var(--text); }
+  .badge { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--bg3); color: var(--text); font-size: 10px; line-height: 16px; text-align: center; }
+  .tab[aria-selected="true"] .badge { background: var(--bg); }
+  .tick { color: var(--ok); display: inline-flex; }
+
+  .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .panel[hidden] { display: none; }
+
+  .settings { padding: 8px 12px 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border-bottom: 1px solid var(--border); flex: none; }
+  .settings .head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; min-height: 16px; }
+  .settings .head b { font-weight: 600; }
+  .settings .head .muted { color: var(--text2); font-weight: 400; }
+  .settings .head b.selmode { color: var(--link); }
+  .field { display: flex; flex-direction: column; gap: 4px; color: var(--text2); min-width: 0; }
+  .ctl { height: 24px; width: 100%; min-width: 0; background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; }
+  .ctl:disabled { opacity: 0.45; }
+  .ctl:focus { outline: 1px solid var(--link); outline-offset: -1px; }
+  .kbwrap { display: flex; align-items: center; gap: 6px; color: var(--text2); }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--text2); cursor: pointer; }
+  .check input { margin: 0; width: 12px; height: 12px; accent-color: #0d99ff; flex: none; }
+  .settings .check.bottom { align-self: end; padding-bottom: 4px; }
+
+  .listhead { display: flex; align-items: center; justify-content: space-between; height: 32px; padding: 0 12px; color: var(--text2); flex: none; }
+  .list { flex: 1; overflow-y: auto; min-height: 0; }
+  .row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 12px; user-select: none; }
+  .row.editable { cursor: default; }
+  .row.editable:hover { background: color-mix(in srgb, var(--bg2) 60%, transparent); }
+  .row.sel, .row.sel:hover { background: var(--sel); }
+  .row input[type="checkbox"] { margin: 0; width: 12px; height: 12px; accent-color: #0d99ff; flex: none; }
+  .row .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 13px; }
+  .row .nm .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .nm .d { color: var(--text2); font-size: 10px; }
+  .row .dims { color: var(--text2); white-space: nowrap; }
+  .mini { height: 22px; background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: 10px; }
+  .mini.fmt { width: 58px; }
+  .mini.kbi { width: 38px; text-align: right; }
+  .mini:disabled { opacity: 0.45; }
+  .mini.ov { color: var(--link); }
+  .row .kb { display: flex; align-items: center; gap: 3px; color: var(--text2); font-size: 10px; }
+  .empty { padding: 24px 16px; color: var(--text2); text-align: center; line-height: 18px; }
+
+  .card { margin: 0 12px 8px; padding: 10px 12px; background: var(--bg2); border-radius: 6px; display: flex; flex-direction: column; gap: 4px; flex: none; }
+  .card[hidden], .nextbar[hidden] { display: none; }
+  .card .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card .okline { display: flex; align-items: center; gap: 6px; color: var(--ok); min-width: 0; }
+  .card .okline.warn { color: var(--warn); }
+  .card .sum { color: var(--text2); }
+  .card .actions { display: flex; align-items: center; gap: 10px; flex: none; }
+  .card .details { color: var(--text2); font-size: 10px; line-height: 14px; white-space: pre-wrap; margin-top: 4px; max-height: 112px; overflow-y: auto; }
+  .linkbtn { border: none; background: none; padding: 0; color: var(--link); font-weight: 500; cursor: pointer; }
+  .linkbtn:hover { text-decoration: underline; }
+  .nextbar { margin: 0 12px 8px; height: 32px; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; border: 1px dashed var(--bg3); border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; flex: none; width: calc(100% - 24px); }
+  .nextbar:hover { border-color: var(--text2); }
+  .nextbar .muted { color: var(--text2); }
+
+  footer { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; flex: none; }
+  .status { color: var(--text2); min-height: 16px; }
+  .status .hint { font-size: 10px; color: var(--text2); opacity: 0.85; margin-top: 2px; line-height: 14px; }
+  .bar { height: 3px; border-radius: 2px; background: var(--bg2); overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: #0d99ff; transition: width 0.2s ease; }
+  .bar.busy { background: repeating-linear-gradient(-45deg, var(--bg2) 0 6px, #0d99ff 6px 12px); background-size: 17px 17px; animation: ceBusy 0.8s linear infinite; }
+  .bar.busy > div { width: 0 !important; }
+  @keyframes ceBusy { from { background-position: 0 0; } to { background-position: 17px 0; } }
+  .primary { width: 100%; height: 32px; border: none; border-radius: 6px; background: var(--brand); color: #fff; font-weight: 600; cursor: pointer; }
+  .primary:hover:enabled { background: var(--brand-hover); }
+  .primary:disabled { opacity: 0.5; cursor: default; }
+  .btnrow { display: flex; gap: 8px; }
+  .btnrow .primary { flex: 1; min-width: 0; }
+  .secondary { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--bg3); border-radius: 6px; background: transparent; color: var(--text); font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .secondary:hover:enabled { border-color: var(--text2); }
+  .secondary:disabled { opacity: 0.5; cursor: default; }
+  .secondary[hidden] { display: none; }
+  .smooth[hidden], .field[hidden] { display: none; }
+  .settings.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .settings.three .smooth, .settings.three .wide { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="title">CompressExpress Motion</span>
+    <div class="tabs" role="tablist" aria-label="Export type">
+      <button class="tab" role="tab" id="tabImages" aria-selected="true" aria-controls="panelImages">Stills <span class="badge" id="badgeImages">0</span></button>
+      <button class="tab" role="tab" id="tabVideo" aria-selected="false" aria-controls="panelVideo">Motion <span class="badge" id="badgeVideo">0</span></button>
+    </div>
+  </header>
+
+  <!-- IMAGES -->
+  <section class="panel" id="panelImages" role="tabpanel" aria-labelledby="tabImages">
+    <div class="settings three">
+      <div class="head"><b id="imgHead">Defaults <span class="muted">· all images</span></b><a id="imgClear" hidden>Clear</a></div>
+      <label class="field">Format
+        <select class="ctl" id="setFmt"><option value="" hidden>Mixed</option><option>JPG</option><option>PNG</option><option>WEBP</option></select>
+      </label>
+      <label class="field">Scale
+        <select class="ctl" id="setScale"><option value="" hidden>Mixed</option><option value="0.5">0.5x</option><option value="1">1x</option><option value="2">2x</option><option value="3">3x</option></select>
+      </label>
+      <label class="field" title="Maximum file size per image">Max size
+        <span class="kbwrap"><input class="ctl" id="setKb" type="text" inputmode="numeric" value="100">KB</span>
+      </label>
+      <label class="check wide"><input type="checkbox" id="skipOpt"> Skip optimisation</label>
+    </div>
+    <div class="listhead"><span id="imgListLabel">Stills in selection</span><label class="check"><input type="checkbox" id="imgAll" checked> All</label></div>
+    <div class="list" id="imgList"></div>
+    <div class="card" id="imgCard" hidden></div>
+    <button class="nextbar" id="imgNext" hidden></button>
+    <footer>
+      <div class="status" id="imgStatus"></div>
+      <div class="bar" id="imgBar" hidden><div></div></div>
+      <div class="btnrow"><button class="primary" id="imgBtn" disabled>Export images</button><button class="secondary allbtn" hidden>Export all</button></div>
+    </footer>
+  </section>
+
+  <!-- VIDEO -->
+  <section class="panel" id="panelVideo" role="tabpanel" aria-labelledby="tabVideo" hidden>
+    <div class="settings three">
+      <label class="field">Format
+        <select class="ctl" id="videoFormat" title="MP4 for screens (rotation-fixed), GIF for banners and email, WebM for web"><option value="MP4" selected>MP4</option><option value="GIF">GIF</option><option value="WEBM">WebM</option></select>
+      </label>
+      <label class="field">Frame rate
+        <select class="ctl" id="videoFps"><option value="60">60fps</option><option value="30">30fps</option><option value="25">25fps</option><option value="24" selected>24fps</option><option value="12">12fps</option></select>
+      </label>
+      <label class="field" id="loopWrap" hidden>Loop
+        <select class="ctl" id="videoLoop" title="How many times the GIF repeats"><option value="0" selected>Forever</option><option value="1">1 time</option><option value="2">2 times</option><option value="3">3 times</option><option value="5">5 times</option></select>
+      </label>
+      <label class="field" id="qualityWrap">Quality
+        <select class="ctl" id="videoQuality" title="Figma render quality and output file size"><option value="LOW">Low</option><option value="MEDIUM" selected>Medium</option><option value="HIGH">High</option></select>
+      </label>
+      <label class="check smooth" id="smoothWrap" hidden title="Figma can't render 25fps from plugins. Smooth renders at 60fps and converts (about twice as long); otherwise it renders at 30fps and converts."><input type="checkbox" id="videoSmooth"> Smooth 25fps (slower)</label>
+    </div>
+    <div class="listhead"><span id="vidListLabel">Motion frames in selection</span><label class="check"><input type="checkbox" id="vidAll" checked> All</label></div>
+    <div class="list" id="vidList"></div>
+    <div class="card" id="vidCard" hidden></div>
+    <button class="nextbar" id="vidNext" hidden></button>
+    <footer>
+      <div class="status" id="vidStatus"></div>
+      <div class="bar" id="vidBar" hidden><div></div></div>
+      <div class="btnrow"><button class="primary" id="vidBtn" disabled>Export MP4</button><button class="secondary allbtn" hidden>Export all</button></div>
+    </footer>
+  </section>
+</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
+  <script id="ce-still-encoder">
+/* Stills encoder pool: MozJPEG (@jsquash/jpeg@1.6.0) + libwebp (@jsquash/webp@1.5.0)
+   Runs in a 2-worker Blob pool using pinned cdn.jsdelivr.net URLs in both hosted and built-in modes. */
+(function (global) {
+  const POOL_SIZE = 2;
+  const MOZ_JS = 'https://cdn.jsdelivr.net/npm/@jsquash/jpeg@1.6.0/codec/enc/mozjpeg_enc.js';
+  const MOZ_WASM = 'https://cdn.jsdelivr.net/npm/@jsquash/jpeg@1.6.0/codec/enc/mozjpeg_enc.wasm';
+  const WEBP_SIMD_JS = 'https://cdn.jsdelivr.net/npm/@jsquash/webp@1.5.0/codec/enc/webp_enc_simd.js';
+  const WEBP_SIMD_WASM = 'https://cdn.jsdelivr.net/npm/@jsquash/webp@1.5.0/codec/enc/webp_enc_simd.wasm';
+  const WEBP_JS = 'https://cdn.jsdelivr.net/npm/@jsquash/webp@1.5.0/codec/enc/webp_enc.js';
+  const WEBP_WASM = 'https://cdn.jsdelivr.net/npm/@jsquash/webp@1.5.0/codec/enc/webp_enc.wasm';
+
+  function detectSimd() {
+    try {
+      return WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
+    } catch (e) { return false; }
+  }
+  const USE_SIMD = detectSimd();
+
+  const wasmCache = {};
+  function fetchWasmOnce(url) {
+    if (!wasmCache[url]) {
+      wasmCache[url] = fetch(url).then((r) => {
+        if (!r.ok) throw new Error('Could not load encoder WASM (' + r.status + ')');
+        return r.arrayBuffer();
+      }).catch((err) => { delete wasmCache[url]; throw err; });
+    }
+    return wasmCache[url];
+  }
+
+  function codecSpec(fmt) {
+    if (fmt === 'JPG') return { jsUrl: MOZ_JS, wasmUrl: MOZ_WASM };
+    if (fmt === 'WEBP') return USE_SIMD ? { jsUrl: WEBP_SIMD_JS, wasmUrl: WEBP_SIMD_WASM } : { jsUrl: WEBP_JS, wasmUrl: WEBP_WASM };
+    throw new Error('Unsupported worker format: ' + fmt);
+  }
+
+  const WORKER_CODE = `
+    const mods = {};
+    const MOZ_BASE = {
+      quality: 75, baseline: true, arithmetic: false, progressive: false, optimize_coding: true,
+      smoothing: 0, color_space: 3, quant_table: 3, trellis_multipass: false, trellis_opt_zero: false,
+      trellis_opt_table: false, trellis_loops: 1, auto_subsample: false, chroma_subsample: 2,
+      separate_chroma_quality: false, chroma_quality: 75
+    };
+    const WEBP_BASE = {
+      quality: 75, target_size: 0, target_PSNR: 0, method: 6, sns_strength: 50, filter_strength: 60,
+      filter_sharpness: 0, filter_type: 1, partitions: 0, segments: 4, pass: 1, show_compressed: 0,
+      preprocessing: 0, autofilter: 0, partition_limit: 0, alpha_compression: 1, alpha_filtering: 1,
+      alpha_quality: 100, lossless: 0, exact: 0, image_hint: 0, emulate_jpeg_size: 0, thread_level: 0,
+      low_memory: 0, near_lossless: 100, use_delta_palette: 0, use_sharp_yuv: 1
+    };
+
+    function ensureMod(fmt, jsUrl, wasmBuf) {
+      if (!mods[fmt]) {
+        mods[fmt] = (async () => {
+          const factory = (await import(jsUrl)).default;
+          return await factory({ noInitialRun: true, wasmBinary: wasmBuf });
+        })().catch((err) => { delete mods[fmt]; throw err; });
+      }
+      return mods[fmt];
+    }
+
+    function flattenOntoWhite(rgba) {
+      let hasAlpha = false;
+      for (let i = 3; i < rgba.length; i += 4) {
+        if (rgba[i] < 255) { hasAlpha = true; break; }
+      }
+      if (!hasAlpha) return rgba;
+      const out = new Uint8Array(rgba.length);
+      for (let i = 0; i < rgba.length; i += 4) {
+        const a = rgba[i + 3];
+        if (a === 255) {
+          out[i] = rgba[i]; out[i + 1] = rgba[i + 1]; out[i + 2] = rgba[i + 2]; out[i + 3] = 255;
+        } else if (a === 0) {
+          out[i] = 255; out[i + 1] = 255; out[i + 2] = 255; out[i + 3] = 255;
+        } else {
+          const inv = 255 - a;
+          out[i]     = (rgba[i]     * a + 255 * inv + 127) / 255 | 0;
+          out[i + 1] = (rgba[i + 1] * a + 255 * inv + 127) / 255 | 0;
+          out[i + 2] = (rgba[i + 2] * a + 255 * inv + 127) / 255 | 0;
+          out[i + 3] = 255;
+        }
+      }
+      return out;
+    }
+
+    async function decodePngInWorker(pngBuf, paintWhite) {
+      const bmp = await createImageBitmap(new Blob([pngBuf], { type: 'image/png' }));
+      const width = bmp.width, height = bmp.height;
+      const oc = new OffscreenCanvas(width, height);
+      const ctx = oc.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+      if (paintWhite) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+      }
+      ctx.drawImage(bmp, 0, 0);
+      bmp.close();
+      return { rgba: ctx.getImageData(0, 0, width, height).data, width, height };
+    }
+
+    self.onmessage = async (ev) => {
+      const { jobId, fmt, kb, skip, jsUrl, wasmBuf, pngBuf, rgbaBuf, width: inW, height: inH } = ev.data;
+      try {
+        const mod = await ensureMod(fmt, jsUrl, wasmBuf);
+        let pixels, width, height;
+        if (pngBuf) {
+          const dec = await decodePngInWorker(pngBuf, fmt === 'JPG');
+          pixels = fmt === 'JPG' ? flattenOntoWhite(dec.rgba) : dec.rgba;
+          width = dec.width; height = dec.height;
+        } else {
+          const raw = new Uint8Array(rgbaBuf);
+          pixels = fmt === 'JPG' ? flattenOntoWhite(raw) : raw;
+          width = inW; height = inH;
+        }
+
+        const stepProg = (step, est) => self.postMessage({ jobId, type: 'progress', p: Math.min(0.95, step / est) });
+
+        if (skip) {
+          stepProg(1, 2);
+          const view = fmt === 'JPG'
+            ? mod.encode(pixels, width, height, Object.assign({}, MOZ_BASE, { quality: 92, chroma_subsample: 1 }))
+            : mod.encode(pixels, width, height, Object.assign({}, WEBP_BASE, { quality: 92 }));
+          if (!view) throw new Error('Encoding failed');
+          const out = new Uint8Array(view);
+          self.postMessage({ jobId, type: 'done', fit: true, bytes: out.buffer, q: 92, chroma: fmt === 'JPG' ? '444' : '420', steps: 1, width, height }, [out.buffer]);
+          return;
+        }
+
+        const maxBytes = Math.floor(kb * 1000);
+        let steps = 0;
+
+        if (fmt === 'JPG') {
+          // Rule: try 4:4:4 first; if q >= 80 fits, binary-search 80..100 in 4:4:4; else binary-search 1..100 in 4:2:0.
+          const v80 = mod.encode(pixels, width, height, Object.assign({}, MOZ_BASE, { quality: 80, chroma_subsample: 1 }));
+          steps++; stepProg(steps, 8);
+          if (v80 && v80.byteLength <= maxBytes) {
+            let best = new Uint8Array(v80), bestQ = 80, lo = 81, hi = 100;
+            while (lo <= hi) {
+              const q = (lo + hi) >> 1;
+              const v = mod.encode(pixels, width, height, Object.assign({}, MOZ_BASE, { quality: q, chroma_subsample: 1 }));
+              steps++; stepProg(steps, 7);
+              if (v && v.byteLength <= maxBytes) { best = new Uint8Array(v); bestQ = q; lo = q + 1; }
+              else hi = q - 1;
+            }
+            self.postMessage({ jobId, type: 'done', fit: true, bytes: best.buffer, q: bestQ, chroma: '444', steps, width, height }, [best.buffer]);
+            return;
+          }
+          let best = null, bestQ = null, minBytes = Infinity, lo = 1, hi = 100;
+          while (lo <= hi) {
+            const q = (lo + hi) >> 1;
+            const v = mod.encode(pixels, width, height, Object.assign({}, MOZ_BASE, { quality: q, chroma_subsample: 2 }));
+            steps++; stepProg(steps, 9);
+            if (v && v.byteLength < minBytes) minBytes = v.byteLength;
+            if (v && v.byteLength <= maxBytes) { best = new Uint8Array(v); bestQ = q; lo = q + 1; }
+            else hi = q - 1;
+          }
+          if (!best) {
+            self.postMessage({ jobId, type: 'done', fit: false, smallestBytes: minBytes, smallestKB: Math.ceil(minBytes / 1000), chroma: '420', steps, width, height });
+            return;
+          }
+          self.postMessage({ jobId, type: 'done', fit: true, bytes: best.buffer, q: bestQ, chroma: '420', steps, width, height }, [best.buffer]);
+          return;
+        }
+
+        if (fmt === 'WEBP') {
+          let best = null, bestQ = null, minBytes = Infinity, lo = 1, hi = 100;
+          while (lo <= hi) {
+            const q = (lo + hi) >> 1;
+            const v = mod.encode(pixels, width, height, Object.assign({}, WEBP_BASE, { quality: q }));
+            steps++; stepProg(steps, 8);
+            if (v && v.byteLength < minBytes) minBytes = v.byteLength;
+            if (v && v.byteLength <= maxBytes) { best = new Uint8Array(v); bestQ = q; lo = q + 1; }
+            else hi = q - 1;
+          }
+          if (!best) {
+            self.postMessage({ jobId, type: 'done', fit: false, smallestBytes: minBytes, smallestKB: Math.ceil(minBytes / 1000), chroma: '420', steps, width, height });
+            return;
+          }
+          self.postMessage({ jobId, type: 'done', fit: true, bytes: best.buffer, q: bestQ, chroma: '420', steps, width, height }, [best.buffer]);
+          return;
+        }
+
+        throw new Error('Unsupported format: ' + fmt);
+      } catch (err) {
+        self.postMessage({ jobId, type: 'error', message: String(err && err.message || err) });
+      }
+    };
+  `;
+
+  let workerBlobUrl = null;
+  let created = 0, nextJobId = 1;
+  const idle = [], queue = [];
+  const canWorkerDecode = typeof OffscreenCanvas !== 'undefined';
+
+  async function decodeOnMain(pngU8, paintWhite) {
+    const url = URL.createObjectURL(new Blob([pngU8], { type: 'image/png' }));
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (paintWhite) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height); }
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      return { rgbaBuf: d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength), width: c.width, height: c.height };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function spawnWorker() {
+    if (!workerBlobUrl) workerBlobUrl = URL.createObjectURL(new Blob([WORKER_CODE], { type: 'text/javascript' }));
+    const w = new Worker(workerBlobUrl);
+    const slot = { worker: w, loaded: new Set(), active: null };
+    w.onmessage = (ev) => {
+      const m = ev.data;
+      const job = slot.active;
+      if (!job || m.jobId !== job.jobId) return;
+      if (m.type === 'progress') {
+        if (job.onProgress) job.onProgress(m.p);
+        return;
+      }
+      slot.active = null;
+      if (m.type === 'done') {
+        slot.loaded.add(job.fmt);
+        const res = Object.assign({}, m);
+        if (res.bytes) res.bytes = new Uint8Array(res.bytes);
+        job.resolve(res);
+      } else {
+        job.reject(new Error(m.message || 'Worker encoding failed'));
+      }
+      pump(slot);
+    };
+    w.onerror = (ev) => {
+      const job = slot.active;
+      slot.active = null;
+      try { w.terminate(); } catch (e) {}
+      created = Math.max(0, created - 1);
+      if (job) job.reject(new Error(ev && ev.message ? ev.message : 'Encoder worker failed to start'));
+      if (queue.length && created < POOL_SIZE) { created++; pump(spawnWorker()); }
+    };
+    return slot;
+  }
+
+  async function dispatch(slot, job) {
+    slot.active = job;
+    try {
+      const spec = codecSpec(job.fmt);
+      let wasmBuf = null;
+      if (!slot.loaded.has(job.fmt)) {
+        const shared = await fetchWasmOnce(spec.wasmUrl);
+        wasmBuf = shared.slice(0);
+      }
+      const msg = { jobId: job.jobId, fmt: job.fmt, kb: job.kb, skip: !!job.skip, jsUrl: spec.jsUrl, wasmBuf };
+      const transfer = [];
+      if (wasmBuf) transfer.push(wasmBuf);
+      if (job.rgbaBuf) {
+        msg.rgbaBuf = job.rgbaBuf; msg.width = job.width; msg.height = job.height;
+        transfer.push(job.rgbaBuf);
+      } else if (canWorkerDecode) {
+        msg.pngBuf = job.pngBuf;
+        transfer.push(job.pngBuf);
+      } else {
+        const dec = await decodeOnMain(new Uint8Array(job.pngBuf), job.fmt === 'JPG');
+        msg.rgbaBuf = dec.rgbaBuf; msg.width = dec.width; msg.height = dec.height;
+        transfer.push(dec.rgbaBuf);
+      }
+      slot.worker.postMessage(msg, transfer);
+    } catch (err) {
+      slot.active = null;
+      job.reject(err);
+      pump(slot);
+    }
+  }
+
+  function pump(slot) {
+    if (queue.length) {
+      dispatch(slot, queue.shift());
+    } else {
+      idle.push(slot);
+    }
+  }
+
+  // encodeStill({ fmt: 'JPG'|'WEBP', kb, skip, pngBytes?, imageData? }, onProgress?)
+  function encodeStill(opts, onProgress) {
+    return new Promise((resolve, reject) => {
+      const fmt = String(opts.fmt || 'JPG').toUpperCase();
+      const job = { jobId: nextJobId++, fmt, kb: opts.kb, skip: !!opts.skip, onProgress, resolve, reject };
+      if (opts.imageData) {
+        const d = opts.imageData.data;
+        job.rgbaBuf = d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength);
+        job.width = opts.imageData.width;
+        job.height = opts.imageData.height;
+      } else if (opts.pngBytes) {
+        const u8 = opts.pngBytes instanceof Uint8Array ? opts.pngBytes : new Uint8Array(opts.pngBytes);
+        job.pngBuf = (u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength)
+          ? u8.buffer.slice(0)
+          : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+      } else {
+        reject(new Error('No image data provided'));
+        return;
+      }
+      if (idle.length) {
+        dispatch(idle.pop(), job);
+      } else if (created < POOL_SIZE) {
+        created++;
+        dispatch(spawnWorker(), job);
+      } else {
+        queue.push(job);
+      }
+    });
+  }
+
+  global.CEStillEncoder = { encodeStill, poolSize: POOL_SIZE };
+})(typeof window !== 'undefined' ? window : self);
+  </script>
+  <script>
+/* MP4 rotation & frame-rate fix
+   - Reads rotation + true frame rate (from the media header) with mp4box.js
+   - Fast path: WebCodecs (hardware/native encoder) when the page is a secure context, e.g. hosted on GitHub Pages
+   - Fallback: ffmpeg.wasm (works in Figma's sandbox, slower)
+   - Bakes rotation into the pixels and converts to the requested frame rate when needed
+   fixRotation(u8, onProgress, onStatus, targetFps) -> { bytes, fixed, retimed, fps, engine, note } */
+(function (global) {
+  var FFMPEG_CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js';
+  var progressCb = null, engineLoadedOnce = false, lastMode = '';
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+  // ---------- inspect ----------
+  function inspect(u8) {
+    return new Promise(function (resolve, reject) {
+      var file = MP4Box.createFile(), ready = false, track = null, samples = [];
+      file.onError = function (e) { reject(new Error('Could not read MP4: ' + e)); };
+      file.onReady = function (info) {
+        ready = true;
+        track = info.videoTracks[0];
+        if (!track) return;
+        file.setExtractionOptions(track.id, null, { nbSamples: Infinity });
+        file.start();
+      };
+      file.onSamples = function (id, user, s) { samples = samples.concat(s); };
+      var ab = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+      ab.fileStart = 0;
+      file.appendBuffer(ab);
+      file.flush();
+      if (!ready) { reject(new Error('MP4 not readable (no moov box)')); return; }
+      if (!track) { reject(new Error('No video track found')); return; }
+      var trak = file.getTrackById(track.id);
+      var mdhd = trak.mdia.mdhd;
+      var secs = mdhd.duration / mdhd.timescale;          // media timescale, not movie timescale
+      if (!(secs > 0) && samples.length) {
+        secs = samples.reduce(function (a, s) { return a + s.duration / s.timescale; }, 0);
+      }
+      var entry = trak.mdia.minf.stbl.stsd.entries[0];
+      var box = entry.avcC || entry.hvcC, desc;
+      if (box) {
+        var st = new DataStream(undefined, 0, DataStream.BIG_ENDIAN);
+        box.write(st);
+        desc = new Uint8Array(st.buffer, 8);
+      }
+      var m = track.matrix;
+      resolve({
+        track: track, samples: samples, description: desc,
+        M: { a: m[0] / 65536, b: m[1] / 65536, c: m[3] / 65536, d: m[4] / 65536 },
+        identity: m[0] === 65536 && m[1] === 0 && m[3] === 0 && m[4] === 65536,
+        width: track.video.width, height: track.video.height,
+        fps: secs > 0 ? track.nb_samples / secs : 0, seconds: secs
+      });
+    });
+  }
+
+  // ---------- fast path: WebCodecs ----------
+  function canUseWebCodecs() {
+    return !!(global.isSecureContext && typeof VideoEncoder !== 'undefined' &&
+              typeof VideoDecoder !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && global.Mp4Muxer);
+  }
+
+  // Output bitrate per quality (bits per pixel per frame), capped at 25 Mbps
+  var QUALITY_BPP = { LOW: 0.035, MEDIUM: 0.06, HIGH: 0.1 };
+  var QUALITY_CRF = { LOW: 26, MEDIUM: 22, HIGH: 18 };
+  var currentQuality = 'MEDIUM';
+  async function pickEncoderConfig(w, h, fps) {
+    var bitrate = Math.min(25000000, Math.round(w * h * fps * (QUALITY_BPP[currentQuality] || 0.06)));
+    var codecs = ['avc1.640034', 'avc1.640033', 'avc1.4d0034', 'avc1.420034'];
+    var accel = ['prefer-hardware', 'no-preference', 'prefer-software'];
+    for (var i = 0; i < accel.length; i++) for (var j = 0; j < codecs.length; j++) {
+      var cfg = { codec: codecs[j], width: w, height: h, bitrate: bitrate, framerate: fps,
+                  hardwareAcceleration: accel[i], avc: { format: 'avc' } };
+      try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (e) {}
+    }
+    return null;
+  }
+
+  function canvasToI420Frame(ctx, w, h, timestamp, duration) {
+    var px = ctx.getImageData(0, 0, w, h).data;
+    var ySize = w * h, cw = w >> 1, ch = h >> 1, cSize = cw * ch;
+    var buf = new Uint8Array(ySize + 2 * cSize);
+    var Y = buf.subarray(0, ySize), U = buf.subarray(ySize, ySize + cSize), V = buf.subarray(ySize + cSize);
+    var i, x, y, r, g, b;
+    for (i = 0, y = 0; y < h; y++) for (x = 0; x < w; x++, i += 4)
+      Y[y * w + x] = (16 + 0.18259 * px[i] + 0.61423 * px[i + 1] + 0.06201 * px[i + 2]) + 0.5 | 0;
+    for (y = 0; y < ch; y++) for (x = 0; x < cw; x++) {
+      var o = ((y * 2) * w + x * 2) * 4, o2 = o + w * 4;
+      r = (px[o] + px[o + 4] + px[o2] + px[o2 + 4]) / 4;
+      g = (px[o + 1] + px[o + 5] + px[o2 + 1] + px[o2 + 5]) / 4;
+      b = (px[o + 2] + px[o + 6] + px[o2 + 2] + px[o2 + 6]) / 4;
+      U[y * cw + x] = (128 - 0.10064 * r - 0.33857 * g + 0.43922 * b) + 0.5 | 0;
+      V[y * cw + x] = (128 + 0.43922 * r - 0.39894 * g - 0.04027 * b) + 0.5 | 0;
+    }
+    return new VideoFrame(buf, { format: 'I420', codedWidth: w, codedHeight: h, timestamp: timestamp,
+      duration: duration, colorSpace: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', fullRange: false } });
+  }
+
+  async function runWebCodecs(info, outFps, onProgress) {
+    var t = info.track, M = info.M, W = info.width, H = info.height;
+    var corners = [[0, 0], [W, 0], [0, H], [W, H]].map(function (p) { return [M.a * p[0] + M.c * p[1], M.b * p[0] + M.d * p[1]]; });
+    var xs = corners.map(function (p) { return p[0]; }), ys = corners.map(function (p) { return p[1]; });
+    var minX = Math.min.apply(null, xs), minY = Math.min.apply(null, ys);
+    var outW = 2 * Math.round(0.5 * (Math.max.apply(null, xs) - minX));
+    var outH = 2 * Math.round(0.5 * (Math.max.apply(null, ys) - minY));
+
+    var encCfg = await pickEncoderConfig(outW, outH, outFps);
+    if (!encCfg) return null; // let caller fall back
+    // Hardware encoders (VideoToolbox on Mac) convert RGB to broadcast-range YUV on the GPU themselves,
+    // so hand them the canvas directly. Software encoders can tag full range, so convert in JS for those.
+    var direct = encCfg.hardwareAcceleration === 'prefer-hardware' && !global.__forceI420;
+    if (global.__forceDirect) direct = true;
+
+    var target = new Mp4Muxer.ArrayBufferTarget();
+    var muxer = new Mp4Muxer.Muxer({ target: target, video: { codec: 'avc', width: outW, height: outH, frameRate: outFps }, fastStart: 'in-memory' });
+    var canvas = new OffscreenCanvas(outW, outH);
+    var ctx = canvas.getContext('2d', { willReadFrequently: !direct });
+    var encErr = null, decErr = null, outCount = 0;
+    var step = 1e6 / outFps, nextT = 0, endT = info.seconds * 1e6;
+    var totalOut = Math.round(info.seconds * outFps);
+
+    var encoder = new VideoEncoder({ output: function (c, m) { muxer.addVideoChunk(c, m); }, error: function (e) { encErr = e; } });
+    encoder.configure(encCfg);
+    var decoder = new VideoDecoder({
+      output: function (frame) {
+        var ts = frame.timestamp, d = frame.duration || (1e6 / (info.fps || 25));
+        if (nextT < ts + d && nextT < endT - 1) {
+          ctx.setTransform(M.a, M.b, M.c, M.d, -minX, -minY);
+          ctx.drawImage(frame, 0, 0, W, H);
+          // emit as many output frames as fall inside this source frame (drops or duplicates to hit outFps)
+          while (nextT < ts + d && nextT < endT - 1) {
+            var vf = direct
+              ? new VideoFrame(canvas, { timestamp: Math.round(nextT), duration: Math.round(step) })
+              : canvasToI420Frame(ctx, outW, outH, Math.round(nextT), Math.round(step));
+            encoder.encode(vf, { keyFrame: outCount % (outFps * 2) === 0 });
+            vf.close();
+            outCount++; nextT = outCount * step;
+          }
+          if (onProgress) onProgress(Math.min(1, outCount / totalOut));
+        }
+        frame.close();
+      },
+      error: function (e) { decErr = e; }
+    });
+    var decCfg = { codec: t.codec, codedWidth: W, codedHeight: H };
+    if (info.description) decCfg.description = info.description;
+    decoder.configure(decCfg);
+
+    for (var i = 0; i < info.samples.length; i++) {
+      var s = info.samples[i];
+      decoder.decode(new EncodedVideoChunk({ type: s.is_sync ? 'key' : 'delta',
+        timestamp: Math.round(s.cts * 1e6 / s.timescale), duration: Math.round(s.duration * 1e6 / s.timescale), data: s.data }));
+      while ((decoder.decodeQueueSize > 4 || encoder.encodeQueueSize > 4) && !encErr && !decErr) await sleep(2);
+      if (encErr || decErr) break;
+    }
+    if (!encErr && !decErr) { await decoder.flush(); await encoder.flush(); }
+    decoder.close(); encoder.close();
+    if (decErr) throw new Error('Decode failed: ' + decErr.message);
+    if (encErr) throw new Error('Encode failed: ' + encErr.message);
+    if (!outCount) throw new Error('No frames were decoded');
+    muxer.finalize();
+    lastMode = direct ? 'direct' : 'i420';
+    return new Uint8Array(target.buffer);
+  }
+
+  // ---------- fallback: ffmpeg.wasm ----------
+  async function runFFmpeg(u8, info, outFps, fpsOff, onProgress, onStatus) {
+    if (onStatus) onStatus(engineLoadedOnce ? 'Starting video engine…' : 'Loading video engine (first time only, ~25MB)…');
+    var ff = FFmpeg.createFFmpeg({ corePath: FFMPEG_CORE, mainName: 'main', log: false });
+    ff.setProgress(function (p) { if (progressCb && p && p.ratio >= 0) progressCb(Math.min(1, p.ratio)); });
+    await ff.load();
+    engineLoadedOnce = true;
+    progressCb = onProgress || null;
+    if (onStatus) onStatus('Processing in compatibility mode… this can take a couple of minutes');
+    await sleep(50);
+    ff.FS('writeFile', 'in.mp4', u8);
+    try {
+      var args = ['-i', 'in.mp4', '-map', '0:v:0'];
+      if (fpsOff) args.push('-vf', 'fps=' + outFps);
+      args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(QUALITY_CRF[currentQuality] || 22), '-pix_fmt', 'yuv420p',
+        '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
+        '-movflags', '+faststart', '-metadata:s:v:0', 'rotate=0', 'out.mp4');
+      await ff.run.apply(ff, args);
+      var out = ff.FS('readFile', 'out.mp4');
+      if (!out || !out.length) throw new Error('ffmpeg produced no output');
+      return out;
+    } finally {
+      try { ff.exit(); } catch (e) {}
+      progressCb = null;
+    }
+  }
+
+  // ---------- main ----------
+  async function fixRotation(u8, onProgress, onStatus, targetFps, quality) {
+    currentQuality = QUALITY_BPP[quality] ? quality : 'MEDIUM';
+    var info = await inspect(u8);
+    var fpsOff = !!targetFps && Math.abs(info.fps - targetFps) > 0.5;
+    var outFps = fpsOff ? targetFps : Math.round(info.fps) || 25;
+    if (info.identity && !fpsOff)
+      return { bytes: u8, fixed: false, retimed: false, fps: info.fps, engine: 'none', mode: 'none', fixMs: 0, note: 'No changes needed' };
+
+    var what = [];
+    if (!info.identity) what.push('rotating');
+    if (fpsOff) what.push('converting ' + Math.round(info.fps) + '→' + targetFps + 'fps');
+
+    var out = null, engine = 'ffmpeg', t0 = performance.now();
+    if (canUseWebCodecs()) {
+      if (onStatus) onStatus(what.join(' and ') + '…');
+      try { out = await runWebCodecs(info, outFps, onProgress); engine = 'webcodecs'; }
+      catch (e) { console.warn('[CompressExpress Motion] WebCodecs failed, falling back to ffmpeg', e); out = null; }
+    }
+    if (!out) out = await runFFmpeg(u8, info, outFps, fpsOff, onProgress, onStatus);
+    return { bytes: out, fixed: !info.identity, retimed: fpsOff, fps: outFps, engine: engine,
+             mode: engine === 'webcodecs' ? lastMode : 'ffmpeg', fixMs: Math.round(performance.now() - t0),
+             note: what.join(', ') };
+  }
+
+  global.fixRotation = fixRotation;
+  global.fixForBroadsign = fixRotation;
+  global.broadsignInspect = inspect;
+})(typeof window !== 'undefined' ? window : self);
+
+  </script>
+  <script>
+  (function () {
+    const PLUGIN_ID = '1491379317227428206';
+    function toFigma(msg) { parent.postMessage({ pluginMessage: msg, pluginId: PLUGIN_ID }, '*'); }
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const TICK = '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-5"></path></svg>';
+    const API_FPS = [12, 24, 30, 60];
+
+    // ---------- state ----------
+    let items = [], projectName = 'export';
+    let tab = null;                       // 'images' | 'video'
+    const include = {};                   // id -> false when unticked
+    const over = {};                      // id -> { fmt, scale, kb } overrides
+    const defaults = { fmt: 'JPG', scale: 1, kb: 100 };
+    let sel = new Set(), anchor = null;   // image rows selected for editing
+    const exported = { images: new Set(), video: new Set() };
+    const done = { images: false, video: false };
+    let busy = false;
+
+    const stills = () => items.filter((i) => i.kind !== 'video');
+    const motions = () => items.filter((i) => i.kind === 'video');
+    const inc = (id) => include[id] !== false;
+    const eff = (id) => { const o = over[id] || {}; return { fmt: o.fmt || defaults.fmt, scale: o.scale != null ? o.scale : defaults.scale, kb: o.kb != null ? o.kb : defaults.kb }; };
+    const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    const pending = (kind) => (kind === 'images' ? stills() : motions()).filter((i) => inc(i.id) && !exported[kind].has(i.id)).length;
+
+    // ---------- tabs ----------
+    function setTab(t) {
+      tab = t;
+      $('tabImages').setAttribute('aria-selected', String(t === 'images'));
+      $('tabVideo').setAttribute('aria-selected', String(t === 'video'));
+      $('panelImages').hidden = t !== 'images';
+      $('panelVideo').hidden = t !== 'video';
+      renderNext();
+    }
+    $('tabImages').onclick = () => setTab('images');
+    $('tabVideo').onclick = () => setTab('video');
+
+    function renderTabs() {
+      const s = stills(), m = motions();
+      const badge = (el, list, kind) => {
+        const all = list.filter((i) => inc(i.id));
+        if (all.length && all.every((i) => exported[kind].has(i.id))) { el.className = 'tick'; el.innerHTML = TICK; el.setAttribute('aria-label', 'done'); }
+        else { el.className = 'badge'; el.textContent = String(list.length); el.removeAttribute('aria-label'); }
+      };
+      badge($('badgeImages'), s, 'images');
+      badge($('badgeVideo'), m, 'video');
+    }
+
+    function renderNext() {
+      const show = (btn, mine, other, label, target) => {
+        const n = pending(other);
+        if (done[mine] && n > 0 && !busy) {
+          btn.hidden = false;
+          btn.innerHTML = `<span>Next: <span class="muted">${esc(plural(n, label))} in your selection</span></span><span>${target} →</span>`;
+          btn.onclick = () => setTab(other);
+        } else btn.hidden = true;
+      };
+      show($('imgNext'), 'images', 'video', 'Motion frame', 'Motion');
+      show($('vidNext'), 'video', 'images', 'still', 'Stills');
+      renderAllBtn();
+    }
+
+    // ---------- images: settings block ----------
+    const setFmt = $('setFmt'), setScale = $('setScale'), setKb = $('setKb');
+
+    function commonValue(key) {
+      const vals = [...sel].map((id) => eff(id)[key]);
+      return vals.every((v) => v === vals[0]) ? vals[0] : null;
+    }
+
+    function renderSettings() {
+      const editing = sel.size > 0;
+      $('imgHead').innerHTML = editing ? `${sel.size} selected` : 'Defaults <span class="muted">· all images</span>';
+      $('imgHead').className = editing ? 'selmode' : '';
+      $('imgClear').hidden = !editing;
+      let fmt, scale, kb;
+      if (editing) { fmt = commonValue('fmt'); scale = commonValue('scale'); kb = commonValue('kb'); }
+      else { fmt = defaults.fmt; scale = defaults.scale; kb = defaults.kb; }
+      setFmt.value = fmt == null ? '' : fmt;
+      setScale.value = scale == null ? '' : String(scale);
+      setKb.value = kb == null ? '' : String(kb);
+      setKb.placeholder = kb == null ? 'Mixed' : '';
+      setKb.disabled = fmt === 'PNG';
+    }
+
+    function applySetting(key, value) {
+      if (sel.size) {
+        sel.forEach((id) => {
+          over[id] = over[id] || {};
+          if (value === defaults[key]) delete over[id][key]; else over[id][key] = value;
+        });
+      } else {
+        defaults[key] = value;
+      }
+      renderImages();
+    }
+    setFmt.onchange = () => { if (setFmt.value) applySetting('fmt', setFmt.value); };
+    setScale.onchange = () => { if (setScale.value) applySetting('scale', Number(setScale.value)); };
+    setKb.onchange = () => { const n = Math.round(Number(setKb.value)); if (n > 0) applySetting('kb', n); else renderSettings(); };
+    $('imgClear').onclick = () => { sel.clear(); anchor = null; renderImages(); };
+
+    // ---------- images: list ----------
+    function renderImages() {
+      const list = $('imgList'), s = stills();
+      $('imgListLabel').textContent = s.length ? `${plural(s.length, 'still')} · click rows to edit together` : 'Stills in selection';
+      if (!s.length) {
+        list.innerHTML = `<div class="empty">${items.length ? 'No stills in this selection.' : 'Select frames, groups or components in Figma to export them.'}</div>`;
+      } else {
+        list.innerHTML = s.map((i) => {
+          const e = eff(i.id), o = over[i.id] || {};
+          const fmts = ['JPG', 'PNG', 'WEBP'].map((f) => `<option${f === e.fmt ? ' selected' : ''}>${f}</option>`).join('');
+          const isPng = e.fmt === 'PNG';
+          return `<div class="row editable${sel.has(i.id) ? ' sel' : ''}" data-id="${esc(i.id)}">
+            <input type="checkbox" class="inc" aria-label="Include ${esc(i.name)}"${inc(i.id) ? ' checked' : ''}>
+            <span class="nm"><span class="n">${esc(i.name)}</span><span class="d">${i.width}×${i.height}${e.scale !== 1 ? ' · ' + e.scale + 'x' : ''}</span></span>
+            <select class="mini fmt${o.fmt ? ' ov' : ''}" aria-label="${esc(i.name)} format">${fmts}</select>
+            <label class="kb"><input class="mini kbi${o.kb != null && !isPng ? ' ov' : ''}" type="text" inputmode="numeric" aria-label="${esc(i.name)} max KB" value="${isPng ? '' : e.kb}"${isPng ? ' disabled placeholder="–"' : ''}>KB</label>
+          </div>`;
+        }).join('');
+      }
+      const incCount = s.filter((i) => inc(i.id)).length;
+      $('imgAll').checked = s.length > 0 && incCount === s.length;
+      $('imgAll').indeterminate = incCount > 0 && incCount < s.length;
+      $('imgAll').disabled = !s.length;
+      $('imgBtn').textContent = incCount ? `Export ${plural(incCount, 'image')}` : 'Export images';
+      $('imgBtn').disabled = busy || !incCount;
+      renderSettings(); renderTabs(); renderNext();
+    }
+
+    $('imgList').addEventListener('change', (ev) => {
+      const row = ev.target.closest('.row'); if (!row) return;
+      const id = row.dataset.id;
+      if (ev.target.classList.contains('inc')) { include[id] = ev.target.checked; renderImages(); return; }
+      over[id] = over[id] || {};
+      if (ev.target.classList.contains('fmt')) {
+        if (ev.target.value === defaults.fmt) delete over[id].fmt; else over[id].fmt = ev.target.value;
+      } else if (ev.target.classList.contains('kbi')) {
+        const n = Math.round(Number(ev.target.value));
+        if (n > 0) { if (n === defaults.kb) delete over[id].kb; else over[id].kb = n; }
+      }
+      renderImages();
+    });
+
+    $('imgList').addEventListener('click', (ev) => {
+      if (ev.target.closest('input, select, label')) return;
+      const row = ev.target.closest('.row'); if (!row) return;
+      const id = row.dataset.id;
+      const ids = stills().map((i) => i.id);
+      if (ev.shiftKey && anchor && ids.includes(anchor)) {
+        const a = ids.indexOf(anchor), b = ids.indexOf(id);
+        sel = new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1));
+      } else if (ev.metaKey || ev.ctrlKey) {
+        sel.has(id) ? sel.delete(id) : sel.add(id); anchor = id;
+      } else {
+        sel = (sel.size === 1 && sel.has(id)) ? new Set() : new Set([id]); anchor = id;
+      }
+      renderImages();
+    });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && sel.size) { sel.clear(); renderImages(); } });
+
+    $('imgAll').onchange = () => { stills().forEach((i) => { include[i.id] = $('imgAll').checked; }); renderImages(); };
+
+    // ---------- video: list ----------
+    const videoFps = $('videoFps'), videoQuality = $('videoQuality'), videoSmooth = $('videoSmooth'), videoFormat = $('videoFormat'), videoLoop = $('videoLoop');
+    // Frame rates per format: MP4 adds 25 (rendered at 30/60 and converted); GIF and WebM use Figma's own list
+    const FORMAT_FPS = { MP4: [60, 30, 25, 24, 12], WEBM: [60, 30, 24, 12], GIF: [30, 24, 15, 12, 8] };
+    const FORMAT_DEFAULT_FPS = { MP4: 24, WEBM: 24, GIF: 15 };
+    const FORMAT_INFO = {
+      MP4: { ext: 'mp4', mime: 'video/mp4', label: 'MP4' },
+      WEBM: { ext: 'webm', mime: 'video/webm', label: 'WebM' },
+      GIF: { ext: 'gif', mime: 'image/gif', label: 'GIF' }
+    };
+    const fmtNow = () => videoFormat.value;
+    const fpsByFormat = {};
+    function syncSmooth() { $('smoothWrap').hidden = fmtNow() !== 'MP4' || API_FPS.includes(Number(videoFps.value)); }
+    function syncFormat() {
+      const f = fmtNow(), list = FORMAT_FPS[f];
+      const want = fpsByFormat[f] || FORMAT_DEFAULT_FPS[f];
+      videoFps.innerHTML = list.map((n) => `<option value="${n}"${n === want ? ' selected' : ''}>${n}fps</option>`).join('');
+      $('loopWrap').hidden = f !== 'GIF';
+      $('qualityWrap').hidden = f === 'GIF';
+      syncSmooth(); renderVideo();
+    }
+    videoFps.addEventListener('change', () => { fpsByFormat[fmtNow()] = Number(videoFps.value); syncSmooth(); });
+    videoFormat.addEventListener('change', syncFormat);
+
+    function renderVideo() {
+      const list = $('vidList'), m = motions();
+      $('vidListLabel').textContent = m.length ? `${plural(m.length, 'Motion frame')} in selection` : 'Motion frames in selection';
+      if (!m.length) {
+        list.innerHTML = `<div class="empty">${items.length ? 'None of the selected frames are animated. Pick a top-level frame that has Motion animation.' : 'Select an animated frame in Figma to export it.'}</div>`;
+      } else {
+        list.innerHTML = m.map((i) => `<div class="row" data-id="${esc(i.id)}">
+            <input type="checkbox" class="inc" aria-label="Include ${esc(i.name)}"${inc(i.id) ? ' checked' : ''}>
+            <span class="nm"><span class="n">${esc(i.name)}</span></span>
+            <span class="dims">${i.width}×${i.height}</span>
+          </div>`).join('');
+      }
+      const incCount = m.filter((i) => inc(i.id)).length;
+      $('vidAll').checked = m.length > 0 && incCount === m.length;
+      $('vidAll').indeterminate = incCount > 0 && incCount < m.length;
+      $('vidAll').disabled = !m.length;
+      const fl = FORMAT_INFO[fmtNow()].label;
+      $('vidBtn').textContent = incCount ? `Export ${plural(incCount, fl)}` : `Export ${fl}`;
+      $('vidBtn').disabled = busy || !incCount;
+      renderTabs(); renderNext();
+    }
+    $('vidList').addEventListener('change', (ev) => {
+      if (!ev.target.classList.contains('inc')) return;
+      include[ev.target.closest('.row').dataset.id] = ev.target.checked; renderVideo();
+    });
+    $('vidAll').onchange = () => { motions().forEach((i) => { include[i.id] = $('vidAll').checked; }); renderVideo(); };
+
+    function renderAll() { renderImages(); renderVideo(); }
+    function renderAllBtn() {
+      const ni = stills().filter((i) => inc(i.id)).length, nv = motions().filter((i) => inc(i.id)).length;
+      document.querySelectorAll('.allbtn').forEach((b) => {
+        b.hidden = !(ni && nv);
+        b.disabled = busy;
+        b.textContent = `Export all ${ni + nv}`;
+        b.title = `Export ${plural(ni, 'image')} and ${plural(nv, FORMAT_INFO[fmtNow()].label)} in one go, using each tab's settings, into one zip`;
+      });
+    }
+
+    // ---------- shared helpers ----------
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+    function saveWhenVisible(blob, name) {
+      const save = () => { try { downloadBlob(blob, name); } catch (e) {} };
+      if (document.hidden) {
+        const onVis = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', onVis); save(); } };
+        document.addEventListener('visibilitychange', onVis);
+      } else save();
+    }
+    function stamp() { const n = new Date(); return [n.getHours(), n.getMinutes(), n.getSeconds()].map((x) => String(x).padStart(2, '0')).join(''); }
+    const mb = (bytes) => bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+    const kbDecimal = (bytes) => bytes >= 1000000 ? (bytes / 1000000).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1000)) + ' KB';
+
+    function showCard(cardEl, { ok, headline, summary, blob, filename, details, openDetails }) {
+      cardEl.hidden = false;
+      cardEl.innerHTML = '';
+      const top = document.createElement('div'); top.className = 'top';
+      const line = document.createElement('span'); line.className = 'okline' + (ok ? '' : ' warn');
+      line.innerHTML = ok ? TICK : '';
+      line.appendChild(document.createTextNode((ok ? '' : '⚠ ') + headline));
+      const actions = document.createElement('span'); actions.className = 'actions';
+      if (blob) {
+        const dl = document.createElement('button'); dl.className = 'linkbtn'; dl.textContent = 'Download'; dl.title = filename;
+        dl.onclick = () => downloadBlob(blob, filename); actions.appendChild(dl);
+      }
+      top.append(line, actions);
+      cardEl.appendChild(top);
+      if (summary) { const s = document.createElement('span'); s.className = 'sum'; s.textContent = summary; cardEl.appendChild(s); }
+      if (details) {
+        const det = document.createElement('div'); det.className = 'details'; det.hidden = !openDetails; det.textContent = details;
+        const link = document.createElement('button'); link.className = 'linkbtn'; link.textContent = openDetails ? 'Hide details' : 'Details'; link.style.fontWeight = '400';
+        link.onclick = () => { det.hidden = !det.hidden; link.textContent = det.hidden ? 'Details' : 'Hide details'; };
+        actions.appendChild(link); cardEl.appendChild(det);
+      }
+    }
+
+    // ---------- image export ----------
+    let imgResults = [], imgErrors = [], imgChosen = [];
+    $('imgBtn').onclick = () => startImages();
+    function startImages() {
+      imgChosen = stills().filter((i) => inc(i.id)).map((i) => { const e = eff(i.id); return { id: i.id, format: e.fmt, scale: e.scale, kb: e.kb }; });
+      if (!imgChosen.length) return false;
+      busy = true; imgResults = []; imgErrors = [];
+      $('imgCard').hidden = true;
+      $('imgBar').hidden = false; $('imgBar').firstElementChild.style.width = '0%';
+      $('imgStatus').textContent = `Exporting ${plural(imgChosen.length, 'image')}…`;
+      renderAll();
+      toFigma({ type: 'export-images', chosen: imgChosen.map(({ id, format, scale }) => ({ id, format, scale })) });
+      return true;
+    }
+
+    async function loadImg(blob) {
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        return img;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    async function pngIndexed256(pngU8) {
+      const img = await loadImg(new Blob([pngU8], { type: 'image/png' }));
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const rgba = ctx.getImageData(0, 0, c.width, c.height).data;
+      return new Blob([UPNG.encode([rgba.buffer], c.width, c.height, 256)], { type: 'image/png' });
+    }
+
+    async function processImage(r, settings, skip, onStep) {
+      const fmt = settings.format;
+      const pngU8 = r.bytes instanceof Uint8Array ? r.bytes : new Uint8Array(r.bytes);
+      if (fmt === 'PNG') {
+        if (skip) return { fit: true, blob: new Blob([pngU8], { type: 'image/png' }), q: null };
+        return { fit: true, blob: await pngIndexed256(pngU8), q: null };
+      }
+      const res = await window.CEStillEncoder.encodeStill({ fmt, kb: settings.kb, skip, pngBytes: pngU8 }, onStep);
+      if (!res.fit) return { fit: false, smallestKB: res.smallestKB };
+      const mime = fmt === 'JPG' ? 'image/jpeg' : 'image/webp';
+      return { fit: true, blob: new Blob([res.bytes], { type: mime }), q: res.q };
+    }
+
+    async function finishImages() {
+      const skip = $('skipOpt').checked;
+      const totalItems = imgResults.length;
+      const slots = new Array(totalItems);
+      const itemProg = new Float32Array(totalItems);
+      let completed = 0;
+
+      const updateUiProgress = () => {
+        if (!totalItems) return;
+        const activeIdx = Math.min(totalItems, completed + 1);
+        $('imgStatus').textContent = `Optimising ${activeIdx} of ${totalItems}…`;
+        let sum = 0;
+        for (let i = 0; i < totalItems; i++) sum += itemProg[i];
+        $('imgBar').firstElementChild.style.width = `${Math.round(20 + 80 * (sum / totalItems))}%`;
+      };
+      updateUiProgress();
+
+      await Promise.all(imgResults.map(async (r, k) => {
+        const settings = imgChosen.find((c) => c.id === r.id) || { format: r.format || 'JPG', kb: defaults.kb };
+        try {
+          const res = await processImage(r, settings, skip, (p) => { itemProg[k] = p; updateUiProgress(); });
+          slots[k] = { r, settings, res };
+        } catch (e) {
+          slots[k] = { r, settings, err: e.message || String(e) };
+        } finally {
+          itemProg[k] = 1;
+          completed++;
+          updateUiProgress();
+        }
+      }));
+
+      const outs = [], notes = [];
+      let cantFitCount = 0, lowQCount = 0;
+      for (let k = 0; k < totalItems; k++) {
+        const s = slots[k];
+        if (!s) continue;
+        if (s.err) { imgErrors.push(`${s.r.name}: ${s.err}`); continue; }
+        const { r, settings, res } = s;
+        if (!res.fit) {
+          cantFitCount++;
+          notes.push(`${r.name}: Can't fit ${settings.kb} KB. Smallest possible: ${res.smallestKB} KB. Raise the max size.`);
+          continue;
+        }
+        outs.push({ id: r.id, name: `${r.name}.${settings.format.toLowerCase()}`, blob: res.blob });
+        if (!skip && res.q != null && res.q < 50) {
+          lowQCount++;
+          notes.push(`${r.name}: Low quality (q${res.q}). Fits ${settings.kb} KB, but check it before sending.`);
+        }
+      }
+
+      let blob = null, filename = '';
+      if (outs.length === 1) { blob = outs[0].blob; filename = outs[0].name; }
+      else if (outs.length > 1) {
+        const zip = new JSZip(), used = {};
+        outs.forEach((o) => { let n = o.name; used[n] = (used[n] || 0) + 1; if (used[n] > 1) n = n.replace(/(\.\w+)$/, `-${used[n]}$1`); zip.file(n, o.blob); });
+        blob = await zip.generateAsync({ type: 'blob' });
+        filename = `${projectName}-images-${stamp()}.zip`;
+      }
+      if (blob && !allMode) saveWhenVisible(blob, filename);
+      outs.forEach((o) => exported.images.add(o.id));
+      busy = false; done.images = outs.length > 0 && !cantFitCount && !imgErrors.length;
+      $('imgBar').hidden = true; $('imgStatus').textContent = '';
+
+      const total = outs.reduce((a, o) => a + o.blob.size, 0);
+      const hasWarn = cantFitCount > 0 || lowQCount > 0 || imgErrors.length > 0;
+      let headline;
+      if (outs.length > 0) {
+        const parts = [`${plural(outs.length, 'image')} exported`];
+        if (cantFitCount) parts.push(`${cantFitCount} couldn't fit`);
+        else if (lowQCount) parts.push(`${lowQCount} low quality`);
+        if (imgErrors.length) parts.push(`${imgErrors.length} failed`);
+        headline = parts.join(', ');
+      } else if (cantFitCount && !imgErrors.length) {
+        headline = `${plural(cantFitCount, 'image')} couldn't fit`;
+      } else {
+        headline = 'Export failed';
+      }
+      const summary = outs.length
+        ? `${outs.length === 1 ? filename + ' · ' : ''}${kbDecimal(total)}${outs.length > 1 ? ' total' : ''}${skip ? ' · not optimised' : ''}`
+        : (cantFitCount ? '' : (imgErrors[0] || ''));
+      const allDetails = notes.concat(imgErrors.map((e) => 'Failed: ' + e));
+
+      showCard($('imgCard'), {
+        ok: outs.length > 0 && !hasWarn,
+        headline,
+        summary,
+        blob, filename,
+        details: allDetails.join('\n'),
+        openDetails: hasWarn
+      });
+      if (allMode) {
+        allImages = outs.map((o) => ({ name: o.name, data: o.blob }));
+        allImgErrors = allDetails.slice();
+        setTab('video');
+        if (!startVideo()) finishAll([]);
+        return;
+      }
+      renderAll();
+    }
+
+    // ---------- video export ----------
+    let vQueue = Promise.resolve(), vOut = [], vErrors = [], vTotal = 0, vSetting = '', vLogs = [], vRendered = 0, vRenderFps = 0, vTargetFps = 24, vTargetQ = 'MEDIUM', vFormat = 'MP4', vLoop = 0, renderTimer = null;
+    function stopRenderTimer() { if (renderTimer) { clearInterval(renderTimer); renderTimer = null; } $('vidBar').classList.remove('busy'); }
+
+    $('vidBtn').onclick = () => startVideo();
+    function startVideo() {
+      const chosen = motions().filter((i) => inc(i.id)).map((i) => ({ id: i.id, scale: 1 }));
+      if (!chosen.length) return false;
+      busy = true; vOut = []; vErrors = []; vTotal = chosen.length; vSetting = ''; vLogs = []; vRendered = 0; vRenderFps = 0;
+      vTargetFps = Number(videoFps.value); vTargetQ = videoQuality.value; vFormat = fmtNow(); vLoop = Number(videoLoop.value);
+      $('vidCard').hidden = true;
+      $('vidBar').hidden = false; $('vidBar').firstElementChild.style.width = '0%'; $('vidBar').classList.add('busy');
+      $('vidStatus').textContent = 'Starting…';
+      renderAll();
+      toFigma({ type: 'export-video', chosen, format: vFormat, fps: vTargetFps, quality: vTargetQ, loopCount: vLoop, smooth: vFormat === 'MP4' && videoSmooth.checked && !API_FPS.includes(vTargetFps) });
+      return true;
+    }
+
+    // ---------- export all (images, then video, into one download) ----------
+    let allMode = false, allImages = [], allImgErrors = [];
+    document.querySelectorAll('.allbtn').forEach((b) => { b.onclick = () => {
+      if (busy) return;
+      allMode = true; allImages = []; allImgErrors = [];
+      $('imgCard').hidden = true; $('vidCard').hidden = true;
+      setTab('images');
+      if (!startImages()) { setTab('video'); if (!startVideo()) allMode = false; }
+    }; });
+    async function finishAll(videoOuts) {
+      allMode = false;
+      const FI = FORMAT_INFO[vFormat];
+      const files = allImages.concat(videoOuts.map((v) => ({ name: `${v.name}.${FI.ext}`, data: v.bytes })));
+      let blob = null, filename = '';
+      if (files.length === 1) { blob = files[0].data instanceof Blob ? files[0].data : new Blob([files[0].data]); filename = files[0].name; }
+      else if (files.length > 1) {
+        const zip = new JSZip(), used = {};
+        files.forEach((f) => { let n = f.name; used[n] = (used[n] || 0) + 1; if (used[n] > 1) n = n.replace(/(\.\w+)$/, `-${used[n]}$1`); zip.file(n, f.data); });
+        blob = await zip.generateAsync({ type: 'blob' });
+        filename = `${projectName}-export-${stamp()}.zip`;
+      }
+      if (blob) saveWhenVisible(blob, filename);
+      return { blob, filename, imgCount: allImages.length, imgErrors: allImgErrors };
+    }
+
+    async function finalizeVideo() {
+      stopRenderTimer();
+      let blob = null, filename = '';
+      const FI = FORMAT_INFO[vFormat];
+      if (vOut.length === 1) { blob = new Blob([vOut[0].bytes], { type: FI.mime }); filename = `${vOut[0].name}.${FI.ext}`; }
+      else if (vOut.length > 1) {
+        const zip = new JSZip(), used = {};
+        vOut.forEach((v) => { let n = v.name; used[n] = (used[n] || 0) + 1; if (used[n] > 1) n = `${n}-${used[n]}`; zip.file(`${n}.${FI.ext}`, v.bytes); });
+        blob = await zip.generateAsync({ type: 'blob' });
+        filename = `${projectName}-${vFormat === 'GIF' ? 'gif' : 'video'}-${stamp()}.zip`;
+      }
+      let combined = null;
+      if (allMode) combined = await finishAll(vOut);
+      else if (blob) saveWhenVisible(blob, filename);
+      vOut.forEach((v) => exported.video.add(v.id));
+
+      const n = vOut.length, failed = vErrors.length;
+      const fixed = vOut.filter((v) => v.fixed).length, retimed = vOut.filter((v) => v.retimed).length;
+      const s = (ms) => (ms / 1000).toFixed(1) + 's';
+      const okRender = vLogs.filter((r) => r.ok).reduce((a, r) => a + r.ms, 0);
+      const failRender = vLogs.filter((r) => !r.ok);
+      const fixTotal = vOut.reduce((a, v) => a + (v.fixMs || 0), 0);
+      const engines = [...new Set(vOut.map((v) => v.engine).filter((e) => e && e !== 'none'))];
+      const modes = [...new Set(vOut.map((v) => v.mode).filter((m) => m && m !== 'none'))];
+      const lines = [];
+      if (vFormat === 'MP4') lines.push(`${n} exported, ${fixed} rotation-fixed${retimed ? `, ${retimed} frame-rate converted` : ''}.`);
+      else lines.push(`${n} ${FI.label} exported straight from Figma (no rotation fix needed).`);
+      if (vRenderFps && vRenderFps !== vTargetFps) lines.push(`Figma rendered at ${vRenderFps}fps (plugins can't render ${vTargetFps}fps), converted to ${vTargetFps}fps${vRenderFps === 60 ? ' (smooth)' : ''}.`);
+      if (vSetting) lines.push(`Figma setting: ${vSetting}`);
+      if (engines.length) lines.push(`Engine: ${engines.map((e) => (e === 'webcodecs' ? 'fast (WebCodecs)' : 'compatibility (ffmpeg)')).join(', ')}${modes.length ? ' [' + modes.join(', ') + ']' : ''}`);
+      let timing = `Timing: Figma render ${s(okRender)}`;
+      if (failRender.length) timing += ` + ${s(failRender.reduce((a, r) => a + r.ms, 0))} on rejected settings`;
+      lines.push(timing + (vFormat === 'MP4' ? `, fix ${s(fixTotal)}` : ''));
+      if (failed) lines.push('Failed: ' + vErrors.join(' | '));
+      console.log('[CompressExpress Motion] video export details\n' + lines.join('\n'));
+
+      const total = vOut.reduce((a, v) => a + v.bytes.length, 0);
+      const headline = n ? `${plural(n, FI.label)} ready for export${failed ? `, ${failed} failed` : ''}` : `Export failed${failed ? ': ' + vErrors[0] : ''}`;
+      busy = false; done.video = n > 0;
+      $('vidBar').hidden = true; $('vidStatus').textContent = '';
+      if (combined) {
+        const ni = combined.imgCount, fi = combined.imgErrors.length, nf = ni + n, ff = fi + failed;
+        const parts = [ni ? plural(ni, 'image') : '', n ? plural(n, FI.label) : ''].filter(Boolean).join(' + ');
+        const cTotal = combined.blob ? combined.blob.size : 0;
+        showCard($('vidCard'), {
+          ok: nf > 0 && !ff,
+          headline: nf ? `${plural(nf, 'file')} ready for export${ff ? `, ${ff} failed` : ''}` : 'Export failed',
+          summary: nf ? `${parts} · ${combined.filename} · ${mb(cTotal)}` : '',
+          blob: combined.blob, filename: combined.filename,
+          details: (fi ? combined.imgErrors.join('\n') + '\n' : '') + lines.join('\n'),
+          openDetails: ff > 0
+        });
+        toFigma({ type: 'video-finished', message: nf ? `${plural(nf, 'file')} ready for export (if nothing downloaded, click Download in CompressExpress Motion)` : 'Export failed', error: !(nf && !ff) });
+        renderAll();
+        return;
+      }
+      showCard($('vidCard'), {
+        ok: n > 0 && !failed, headline,
+        summary: n ? `${n === 1 ? filename + ' · ' : ''}${vTargetFps}fps · ${vFormat === 'GIF' ? (vLoop ? `loops ${vLoop}×` : 'loops forever') : vTargetQ.toLowerCase()} · ${mb(total)} · ${s(okRender + fixTotal)}` : '',
+        blob, filename, details: lines.join('\n')
+      });
+      toFigma({ type: 'video-finished', message: n ? `${headline} (if nothing downloaded, click Download in CompressExpress Motion)` : headline, error: !(n && !failed) });
+      renderAll();
+    }
+
+    // ---------- messages from Figma ----------
+    window.onmessage = ({ data: { pluginMessage: msg } = {} }) => {
+      if (!msg) return;
+      if (msg.type === 'set-image-list') {
+        items = msg.data.images || [];
+        projectName = msg.data.projectName || projectName;
+        const ids = new Set(items.map((i) => i.id));
+        sel = new Set([...sel].filter((id) => ids.has(id)));
+        // land on the tab that has something; prefer Video when the selection contains Motion frames
+        const s = stills().length, m = motions().length;
+        if (!tab) setTab(m ? 'video' : 'images');
+        else if (tab === 'images' && !s && m) setTab('video');
+        else if (tab === 'video' && !m && s) setTab('images');
+        if (!busy) { $('imgCard').hidden = true; $('vidCard').hidden = true; done.images = false; done.video = false; }
+        renderAll();
+      }
+      if (msg.type === 'export-result') {
+        imgResults.push(msg.data);
+        $('imgBar').firstElementChild.style.width = `${Math.round(20 * imgResults.length / Math.max(1, imgChosen.length))}%`;
+        $('imgStatus').textContent = `Exported ${imgResults.length} of ${imgChosen.length} from Figma…`;
+      }
+      if (msg.type === 'export-error') imgErrors.push(`${msg.data.name}: ${msg.data.message}`);
+      if (msg.type === 'export-complete') finishImages();
+
+      if (msg.type === 'video-status') {
+        vRendered++;
+        const rName = msg.data.name, rIdx = Math.min(vRendered, vTotal), rStart = Date.now();
+        const counter = vTotal > 1 ? ` (${rIdx} of ${vTotal})` : '';
+        stopRenderTimer();
+        $('vidBar').hidden = false; $('vidBar').classList.add('busy');
+        const tick = () => {
+          $('vidStatus').textContent = `Rendering ${rName} in Figma${counter}… ${Math.round((Date.now() - rStart) / 1000)}s`;
+          const hint = document.createElement('div'); hint.className = 'hint';
+          hint.textContent = "If Figma's export window opens, close it (don't use its Download). Your file saves when you're back.";
+          $('vidStatus').appendChild(hint);
+        };
+        tick(); renderTimer = setInterval(tick, 1000);
+      }
+      if (msg.type === 'video-error') { stopRenderTimer(); vErrors.push(`${msg.data.name}: ${msg.data.message}`); }
+      if (msg.type === 'video-result') {
+        stopRenderTimer();
+        const { id, name, bytes, used, settingErrors, fps, renderFps, renderLog } = msg.data;
+        if (renderFps) vRenderFps = renderFps;
+        if (renderLog) vLogs.push(...renderLog);
+        if (used) vSetting = used;
+        if (settingErrors && settingErrors.length) console.log('[CompressExpress Motion] Figma export setting errors', settingErrors);
+        vQueue = vQueue.then(async () => {
+          if (vFormat !== 'MP4') {
+            vOut.push({ id, name, bytes: new Uint8Array(bytes), fixed: false, retimed: false, engine: 'none', mode: 'none', fixMs: 0 });
+            $('vidBar').firstElementChild.style.width = `${Math.round(100 * (vOut.length + vErrors.length) / vTotal)}%`;
+            return;
+          }
+          try {
+            const r = await fixRotation(new Uint8Array(bytes),
+              (p) => { $('vidStatus').textContent = `Fixing ${name}… ${Math.round(p * 100)}%`; $('vidBar').firstElementChild.style.width = `${Math.round(100 * (vOut.length + vErrors.length + p) / vTotal)}%`; },
+              (st) => { $('vidStatus').textContent = `${name}: ${st}`; },
+              fps, vTargetQ);
+            vOut.push({ id, name, bytes: r.bytes, fixed: r.fixed, retimed: r.retimed, engine: r.engine, mode: r.mode, fixMs: r.fixMs });
+          } catch (e) { vErrors.push(`${name}: ${e.message}`); }
+          $('vidBar').firstElementChild.style.width = `${Math.round(100 * (vOut.length + vErrors.length) / vTotal)}%`;
+        });
+      }
+      if (msg.type === 'video-complete') vQueue = vQueue.then(finalizeVideo);
+    };
+
+    syncFormat();
+    renderAll();
+    window.addEventListener('load', () => toFigma({ type: 'get-images' }));
+  })();
+  </script>
+</body>
+</html>
