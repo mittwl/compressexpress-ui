@@ -510,6 +510,135 @@
   var progressCb = null, engineLoadedOnce = false, lastMode = '';
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
 
+  // ---------- colour tags (ISO/IEC 23091-2 CICP <-> WebCodecs <-> FFmpeg) ----------
+  var WC_PRIMARIES = { 1: 'bt709', 5: 'bt470bg', 6: 'smpte170m', 9: 'bt2020', 12: 'smpte432' };
+  var WC_TRANSFER = { 1: 'bt709', 6: 'smpte170m', 8: 'linear', 13: 'iec61966-2-1', 16: 'pq', 18: 'hlg' };
+  var WC_MATRIX = { 0: 'rgb', 1: 'bt709', 5: 'bt470bg', 6: 'smpte170m', 9: 'bt2020-ncl' };
+  var WC_PRIM_REV = { bt709: 1, bt470bg: 5, smpte170m: 6, bt2020: 9, smpte432: 12 };
+  var WC_TRC_REV = { bt709: 1, smpte170m: 6, linear: 8, 'iec61966-2-1': 13, pq: 16, hlg: 18 };
+  var WC_MAT_REV = { rgb: 0, bt709: 1, bt470bg: 5, smpte170m: 6, 'bt2020-ncl': 9 };
+  var FF_PRIMARIES = { 1: 'bt709', 4: 'bt470m', 5: 'bt470bg', 6: 'smpte170m', 7: 'smpte240m', 8: 'film', 9: 'bt2020', 10: 'smpte428', 11: 'smpte431', 12: 'smpte432', 22: 'jedec-p22' };
+  var FF_TRANSFER = { 1: 'bt709', 4: 'gamma22', 5: 'gamma28', 6: 'smpte170m', 7: 'smpte240m', 8: 'linear', 11: 'iec61966-2-4', 13: 'iec61966-2-1', 14: 'bt2020-10', 15: 'bt2020-12', 16: 'smpte2084', 18: 'arib-std-b67' };
+  var FF_MATRIX = { 0: 'gbr', 1: 'bt709', 4: 'fcc', 5: 'bt470bg', 6: 'smpte170m', 7: 'smpte240m', 8: 'ycgco', 9: 'bt2020nc', 10: 'bt2020c' };
+
+  function parseAvcCSpsColor(avcC) {
+    if (!avcC || avcC.length < 8 || !(avcC[5] & 0x1f)) return null;
+    var spsLen = (avcC[6] << 8) | avcC[7];
+    if (8 + spsLen > avcC.length || spsLen < 4) return null;
+    var rbsp = [], i;
+    for (i = 9; i < 8 + spsLen; i++) {
+      if (i + 2 < 8 + spsLen && avcC[i] === 0 && avcC[i + 1] === 0 && avcC[i + 2] === 3) { rbsp.push(0, 0); i += 2; }
+      else rbsp.push(avcC[i]);
+    }
+    var bp = 0, total = rbsp.length * 8;
+    function bits(n) {
+      var v = 0;
+      for (var k = 0; k < n; k++, bp++) v = (v << 1) | ((bp < total ? (rbsp[bp >> 3] >> (7 - (bp & 7))) : 0) & 1);
+      return v >>> 0;
+    }
+    function ue() { var z = 0; while (bp < total && bits(1) === 0) z++; return z ? ((1 << z) - 1 + bits(z)) : 0; }
+    function se() { var u = ue(); return (u & 1) ? ((u + 1) >> 1) : -(u >> 1); }
+    function skipScale(sz) {
+      var last = 8, next = 8;
+      for (var j = 0; j < sz; j++) { if (next !== 0) next = (last + se() + 256) % 256; last = next === 0 ? last : next; }
+    }
+    var profile = bits(8); bits(16); ue();
+    if ([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].indexOf(profile) >= 0) {
+      var cf = ue(); if (cf === 3) bits(1); ue(); ue(); bits(1);
+      if (bits(1)) { for (i = 0; i < (cf !== 3 ? 8 : 12); i++) if (bits(1)) skipScale(i < 6 ? 16 : 64); }
+    }
+    ue();
+    var poc = ue();
+    if (poc === 0) ue();
+    else if (poc === 1) { bits(1); se(); se(); var nc = ue(); for (i = 0; i < nc; i++) se(); }
+    ue(); bits(1); ue(); ue();
+    if (!bits(1)) bits(1);
+    bits(1);
+    if (bits(1)) { ue(); ue(); ue(); ue(); }
+    if (!bits(1)) return null; // vui_parameters_present_flag
+    if (bits(1) && bits(8) === 255) bits(32);
+    if (bits(1)) bits(1);
+    if (!bits(1)) return null; // video_signal_type_present_flag
+    bits(3);
+    var fullRange = !!bits(1);
+    if (!bits(1)) return { primaries: null, transfer: null, matrix: null, fullRange: fullRange };
+    return { primaries: bits(8), transfer: bits(8), matrix: bits(8), fullRange: fullRange };
+  }
+
+  function validPT(v) { return v != null && v !== 0 && v !== 2 ? v : null; }
+  function validMat(v) { return v != null && v !== 2 ? v : null; }
+  function hasColorTags(c) { return !!(c && (c.primaries != null || c.transfer != null || c.matrix != null)); }
+
+  function readSourceColor(u8, entry, avcC) {
+    var cp = null, ct = null, cm = null, cr = null;
+    var colr = entry && entry.colr;
+    if (colr) {
+      if (colr.colour_type === 'nclx') {
+        cp = validPT(colr.colour_primaries);
+        ct = validPT(colr.transfer_characteristics);
+        cm = validMat(colr.matrix_coefficients);
+        if (colr.full_range_flag != null) cr = !!colr.full_range_flag;
+      } else if (colr.colour_type === 'nclc' && colr.start != null && colr.start + 18 <= u8.length) {
+        var o = colr.start + 12;
+        cp = validPT((u8[o] << 8) | u8[o + 1]);
+        ct = validPT((u8[o + 2] << 8) | u8[o + 3]);
+        cm = validMat((u8[o + 4] << 8) | u8[o + 5]);
+      }
+    }
+    var sps = entry && entry.avcC ? parseAvcCSpsColor(avcC) : null;
+    if (sps) {
+      if (cp == null) cp = validPT(sps.primaries);
+      if (ct == null) ct = validPT(sps.transfer);
+      if (cm == null) cm = validMat(sps.matrix);
+      if (cr == null && sps.fullRange != null) cr = sps.fullRange;
+    }
+    return { primaries: cp, transfer: ct, matrix: cm, fullRange: cr };
+  }
+
+  function toWebCodecsColorSpace(c, forI420) {
+    if (!c) return null;
+    var p = WC_PRIMARIES[c.primaries] || null;
+    var t = WC_TRANSFER[c.transfer] || null;
+    var m = WC_MATRIX[c.matrix] || null;
+    if (forI420 && m === 'rgb') m = 'bt709';
+    if (!p && !t && !m && c.fullRange == null) return null;
+    return { primaries: p, transfer: t, matrix: m, fullRange: c.fullRange != null ? !!c.fullRange : false };
+  }
+
+  // Ensure stsd/avc1/colr (nclx) carries exact CICP codes (mp4-muxer@5.2.2 only maps 3 codes and writes 0 for others)
+  function patchStsdColr(mp4, c, outFullRange) {
+    if (!hasColorTags(c)) return;
+    function findChild(start, end, fourcc) {
+      for (var p = start; p + 8 <= end;) {
+        var sz = ((mp4[p] << 24) | (mp4[p + 1] << 16) | (mp4[p + 2] << 8) | mp4[p + 3]) >>> 0;
+        if (sz < 8 || p + sz > end) break;
+        if (String.fromCharCode(mp4[p + 4], mp4[p + 5], mp4[p + 6], mp4[p + 7]) === fourcc) return [p, p + sz];
+        p += sz;
+      }
+      return null;
+    }
+    var b = findChild(0, mp4.length, 'moov');
+    var path = ['trak', 'mdia', 'minf', 'stbl'];
+    for (var i = 0; i < path.length && b; i++) b = findChild(b[0] + 8, b[1], path[i]);
+    var stsd = b && findChild(b[0] + 8, b[1], 'stsd');
+    if (!stsd || stsd[0] + 16 + 86 > stsd[1]) return;
+    var sePos = stsd[0] + 16;
+    var seSz = ((mp4[sePos] << 24) | (mp4[sePos + 1] << 16) | (mp4[sePos + 2] << 8) | mp4[sePos + 3]) >>> 0;
+    if (seSz < 86 || sePos + seSz > stsd[1]) return;
+    var colr = findChild(sePos + 86, sePos + seSz, 'colr');
+    if (!colr || colr[1] - colr[0] < 19) return;
+    var o = colr[0] + 8;
+    if (String.fromCharCode(mp4[o], mp4[o + 1], mp4[o + 2], mp4[o + 3]) !== 'nclx') return;
+    var prim = c.primaries != null ? c.primaries : 2;
+    var trc = c.transfer != null ? c.transfer : 2;
+    var mat = c.matrix != null && c.matrix !== 0 ? c.matrix : (c.matrix === 0 ? 1 : 2);
+    var fr = outFullRange != null ? !!outFullRange : !!c.fullRange;
+    mp4[o + 4] = (prim >> 8) & 255; mp4[o + 5] = prim & 255;
+    mp4[o + 6] = (trc >> 8) & 255;  mp4[o + 7] = trc & 255;
+    mp4[o + 8] = (mat >> 8) & 255;  mp4[o + 9] = mat & 255;
+    mp4[o + 10] = fr ? 0x80 : 0x00;
+  }
+
   // ---------- inspect ----------
   function inspect(u8) {
     return new Promise(function (resolve, reject) {
@@ -542,9 +671,10 @@
         box.write(st);
         desc = new Uint8Array(st.buffer, 8);
       }
+      var color = readSourceColor(u8, entry, desc);
       var m = track.matrix;
       resolve({
-        track: track, samples: samples, description: desc,
+        track: track, samples: samples, description: desc, color: color, avcParsed: !!entry.avcC,
         M: { a: m[0] / 65536, b: m[1] / 65536, c: m[3] / 65536, d: m[4] / 65536 },
         identity: m[0] === 65536 && m[1] === 0 && m[3] === 0 && m[4] === 65536,
         width: track.video.width, height: track.video.height,
@@ -575,24 +705,38 @@
     return null;
   }
 
-  function canvasToI420Frame(ctx, w, h, timestamp, duration) {
+  function canvasToI420Frame(ctx, w, h, timestamp, duration, color) {
     var px = ctx.getImageData(0, 0, w, h).data;
     var ySize = w * h, cw = w >> 1, ch = h >> 1, cSize = cw * ch;
     var buf = new Uint8Array(ySize + 2 * cSize);
     var Y = buf.subarray(0, ySize), U = buf.subarray(ySize, ySize + cSize), V = buf.subarray(ySize + cSize);
+    var full = !!(color && color.fullRange);
+    var bt601 = !!(color && (color.matrix === 5 || color.matrix === 6));
+    var yo = full ? 0 : 16;
+    var yr = bt601 ? (full ? 0.29900 : 0.25679) : (full ? 0.21260 : 0.18259);
+    var yg = bt601 ? (full ? 0.58700 : 0.50413) : (full ? 0.71520 : 0.61423);
+    var yb = bt601 ? (full ? 0.11400 : 0.09791) : (full ? 0.07220 : 0.06201);
+    var ur = bt601 ? (full ? -0.16874 : -0.14822) : (full ? -0.11457 : -0.10064);
+    var ug = bt601 ? (full ? -0.33126 : -0.29099) : (full ? -0.38543 : -0.33857);
+    var ub = full ? 0.50000 : 0.43922;
+    var vr = ub;
+    var vg = bt601 ? (full ? -0.41869 : -0.36779) : (full ? -0.45415 : -0.39894);
+    var vb = bt601 ? (full ? -0.08131 : -0.07143) : (full ? -0.04585 : -0.04027);
     var i, x, y, r, g, b;
     for (i = 0, y = 0; y < h; y++) for (x = 0; x < w; x++, i += 4)
-      Y[y * w + x] = (16 + 0.18259 * px[i] + 0.61423 * px[i + 1] + 0.06201 * px[i + 2]) + 0.5 | 0;
+      Y[y * w + x] = (yo + yr * px[i] + yg * px[i + 1] + yb * px[i + 2]) + 0.5 | 0;
     for (y = 0; y < ch; y++) for (x = 0; x < cw; x++) {
       var o = ((y * 2) * w + x * 2) * 4, o2 = o + w * 4;
-      r = (px[o] + px[o + 4] + px[o2] + px[o2 + 4]) / 4;
-      g = (px[o + 1] + px[o + 5] + px[o2 + 1] + px[o2 + 5]) / 4;
-      b = (px[o + 2] + px[o + 6] + px[o2 + 2] + px[o2 + 6]) / 4;
-      U[y * cw + x] = (128 - 0.10064 * r - 0.33857 * g + 0.43922 * b) + 0.5 | 0;
-      V[y * cw + x] = (128 + 0.43922 * r - 0.39894 * g - 0.04027 * b) + 0.5 | 0;
+      r = (px[o] + px[o + 4] + px[o2] + px[o2 + 4]) * 0.25;
+      g = (px[o + 1] + px[o + 5] + px[o2 + 1] + px[o2 + 5]) * 0.25;
+      b = (px[o + 2] + px[o + 6] + px[o2 + 2] + px[o2 + 6]) * 0.25;
+      U[y * cw + x] = (128 + ur * r + ug * g + ub * b) + 0.5 | 0;
+      V[y * cw + x] = (128 + vr * r + vg * g + vb * b) + 0.5 | 0;
     }
-    return new VideoFrame(buf, { format: 'I420', codedWidth: w, codedHeight: h, timestamp: timestamp,
-      duration: duration, colorSpace: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', fullRange: false } });
+    var init = { format: 'I420', codedWidth: w, codedHeight: h, timestamp: timestamp, duration: duration };
+    var cs = toWebCodecsColorSpace(color, true);
+    if (cs) init.colorSpace = cs;
+    return new VideoFrame(buf, init);
   }
 
   async function runWebCodecs(info, outFps, onProgress) {
@@ -605,23 +749,55 @@
 
     var encCfg = await pickEncoderConfig(outW, outH, outFps);
     if (!encCfg) return null; // let caller fall back
-    // Hardware encoders (VideoToolbox on Mac) convert RGB to broadcast-range YUV on the GPU themselves,
-    // so hand them the canvas directly. Software encoders can tag full range, so convert in JS for those.
-    var direct = encCfg.hardwareAcceleration === 'prefer-hardware' && !global.__forceI420;
+    var srcColor = {
+      primaries: info.color ? info.color.primaries : null,
+      transfer: info.color ? info.color.transfer : null,
+      matrix: info.color ? info.color.matrix : null,
+      fullRange: info.color ? info.color.fullRange : null
+    };
+    // VideoToolbox on Apple converts a GPU sRGB canvas directly to limited-range bt709/iec61966-2-1/bt709 YUV.
+    // Only use direct canvas mode when the source file carries those exact tags; otherwise use I420 with explicit colorSpace.
+    var isApple = /Mac|iPhone|iPad/.test((global.navigator && global.navigator.platform) || '');
+    var tagsMatchDirect = srcColor.primaries === 1 && srcColor.transfer === 13 && srcColor.matrix === 1 && !srcColor.fullRange;
+    var direct = isApple && encCfg.hardwareAcceleration === 'prefer-hardware' && tagsMatchDirect && !global.__forceI420;
     if (global.__forceDirect) direct = true;
 
     var target = new Mp4Muxer.ArrayBufferTarget();
     var muxer = new Mp4Muxer.Muxer({ target: target, video: { codec: 'avc', width: outW, height: outH, frameRate: outFps }, fastStart: 'in-memory' });
     var canvas = new OffscreenCanvas(outW, outH);
-    var ctx = canvas.getContext('2d', { willReadFrequently: !direct });
-    var encErr = null, decErr = null, outCount = 0;
+    var ctx = canvas.getContext('2d');
+    var encErr = null, decErr = null, outCount = 0, outFullRange = null;
     var step = 1e6 / outFps, nextT = 0, endT = info.seconds * 1e6;
     var totalOut = Math.round(info.seconds * outFps);
 
-    var encoder = new VideoEncoder({ output: function (c, m) { muxer.addVideoChunk(c, m); }, error: function (e) { encErr = e; } });
+    var encoder = new VideoEncoder({
+      output: function (c, m) {
+        if (m && m.decoderConfig) {
+          if (m.decoderConfig.colorSpace && m.decoderConfig.colorSpace.fullRange != null) {
+            outFullRange = !!m.decoderConfig.colorSpace.fullRange;
+          }
+          if (!hasColorTags(srcColor)) {
+            var dc = Object.assign({}, m.decoderConfig);
+            delete dc.colorSpace;
+            m = Object.assign({}, m, { decoderConfig: dc });
+          }
+        }
+        muxer.addVideoChunk(c, m);
+      },
+      error: function (e) { encErr = e; }
+    });
     encoder.configure(encCfg);
     var decoder = new VideoDecoder({
       output: function (frame) {
+        if (!info.avcParsed && frame.colorSpace) {
+          if (srcColor.primaries == null && frame.colorSpace.primaries) srcColor.primaries = WC_PRIM_REV[frame.colorSpace.primaries] || null;
+          if (srcColor.transfer == null && frame.colorSpace.transfer) srcColor.transfer = WC_TRC_REV[frame.colorSpace.transfer] || null;
+          if (srcColor.matrix == null && frame.colorSpace.matrix != null) {
+            var fm = WC_MAT_REV[frame.colorSpace.matrix];
+            if (fm != null) srcColor.matrix = fm;
+          }
+          if (srcColor.fullRange == null && frame.colorSpace.fullRange != null) srcColor.fullRange = !!frame.colorSpace.fullRange;
+        }
         var ts = frame.timestamp, d = frame.duration || (1e6 / (info.fps || 25));
         if (nextT < ts + d && nextT < endT - 1) {
           ctx.setTransform(M.a, M.b, M.c, M.d, -minX, -minY);
@@ -630,7 +806,7 @@
           while (nextT < ts + d && nextT < endT - 1) {
             var vf = direct
               ? new VideoFrame(canvas, { timestamp: Math.round(nextT), duration: Math.round(step) })
-              : canvasToI420Frame(ctx, outW, outH, Math.round(nextT), Math.round(step));
+              : canvasToI420Frame(ctx, outW, outH, Math.round(nextT), Math.round(step), srcColor);
             encoder.encode(vf, { keyFrame: outCount % (outFps * 2) === 0 });
             vf.close();
             outCount++; nextT = outCount * step;
@@ -643,6 +819,8 @@
     });
     var decCfg = { codec: t.codec, codedWidth: W, codedHeight: H };
     if (info.description) decCfg.description = info.description;
+    var decCs = toWebCodecsColorSpace(srcColor, false);
+    if (decCs) decCfg.colorSpace = decCs;
     decoder.configure(decCfg);
 
     for (var i = 0; i < info.samples.length; i++) {
@@ -659,7 +837,9 @@
     if (!outCount) throw new Error('No frames were decoded');
     muxer.finalize();
     lastMode = direct ? 'direct' : 'i420';
-    return new Uint8Array(target.buffer);
+    var outBytes = new Uint8Array(target.buffer);
+    patchStsdColr(outBytes, srcColor, outFullRange != null ? outFullRange : (direct ? false : !!(srcColor && srcColor.fullRange)));
+    return outBytes;
   }
 
   // ---------- fallback: ffmpeg.wasm ----------
@@ -674,11 +854,22 @@
     await sleep(50);
     ff.FS('writeFile', 'in.mp4', u8);
     try {
+      var c = (info && info.color) || {};
+      var full = !!c.fullRange;
+      var prim = c.primaries != null ? (FF_PRIMARIES[c.primaries] || String(c.primaries)) : null;
+      var trc = c.transfer != null ? (FF_TRANSFER[c.transfer] || String(c.transfer)) : null;
+      var mat = c.matrix != null && c.matrix !== 0 ? (FF_MATRIX[c.matrix] || String(c.matrix)) : (c.matrix === 0 ? 'bt709' : null);
+      var tagged = !!(prim || trc || mat);
       var args = ['-i', 'in.mp4', '-map', '0:v:0'];
       if (fpsOff) args.push('-vf', 'fps=' + outFps);
-      args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(QUALITY_CRF[currentQuality] || 22), '-pix_fmt', 'yuv420p',
-        '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
-        '-movflags', '+faststart', '-metadata:s:v:0', 'rotate=0', 'out.mp4');
+      args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(QUALITY_CRF[currentQuality] || 22),
+        '-pix_fmt', full ? 'yuvj420p' : 'yuv420p');
+      if (c.fullRange != null) args.push('-color_range', full ? 'pc' : 'tv');
+      if (prim) args.push('-color_primaries', prim);
+      if (trc) args.push('-color_trc', trc);
+      if (mat) args.push('-colorspace', mat);
+      args.push('-movflags', tagged ? '+faststart+write_colr' : '+faststart',
+        '-metadata:s:v:0', 'rotate=0', 'out.mp4');
       await ff.run.apply(ff, args);
       var out = ff.FS('readFile', 'out.mp4');
       if (!out || !out.length) throw new Error('ffmpeg produced no output');
@@ -715,8 +906,6 @@
   }
 
   global.fixRotation = fixRotation;
-  global.fixForBroadsign = fixRotation;
-  global.broadsignInspect = inspect;
 })(typeof window !== 'undefined' ? window : self);
 
   </script>
@@ -828,7 +1017,7 @@
       const list = $('imgList'), s = stills();
       $('imgListLabel').textContent = s.length ? `${plural(s.length, 'still')} · click rows to edit together` : 'Stills in selection';
       if (!s.length) {
-        list.innerHTML = `<div class="empty">${items.length ? 'No stills in this selection.' : 'Select frames, groups or components in Figma to export them.'}</div>`;
+        list.innerHTML = `<div class="empty">${items.length ? 'No stills in this selection.' : 'Select frames, images, groups or components in Figma to export them.'}</div>`;
       } else {
         list.innerHTML = s.map((i) => {
           const e = eff(i.id), o = over[i.id] || {};
